@@ -217,7 +217,7 @@ var planeObject = {
 			} else {
 				console.log("Starting new line");
 				this.line = new google.maps.Polyline({
-					strokeColor: "rgb("+(this.altitude*0.006375)+", 85, 85)",//'#000000',
+					strokeColor: '#000000',
 					strokeOpacity: 1.0,
 					strokeWeight: 3,
 					map: GoogleMap,
