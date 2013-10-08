@@ -1,32 +1,32 @@
-/* dump1090, a Mode S messages decoder for RTLSDR devices.
- *
- * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
- *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- *  *  Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *
- *  *  Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// dump1090, a Mode S messages decoder for RTLSDR devices.
+//
+// Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//  *  Redistributions of source code must retain the above copyright
+//     notice, this list of conditions and the following disclaimer.
+//
+//  *  Redistributions in binary form must reproduce the above copyright
+//     notice, this list of conditions and the following disclaimer in the
+//     documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
@@ -37,9 +37,9 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.07.2305.13"
+#define MODES_DUMP1090_VERSION     "1.07.0610.13"
 
-/* ============================= Include files ========================== */
+// ============================= Include files ==========================
 
 #ifndef _WIN32
     #include <stdio.h>
@@ -63,8 +63,11 @@
     #include "rtl-sdr.h"
 #endif
 
-/* ============================= #defines =============================== */
-
+// ============================= #defines ===============================
+//
+// If you have a valid coaa.h, these values will come from it. If not, 
+// then you can enter your own values in the #else section here
+//
 #ifdef USER_LATITUDE
     #define MODES_USER_LATITUDE_DFLT   (USER_LATITUDE)
     #define MODES_USER_LONGITUDE_DFLT  (USER_LONGITUDE)
@@ -155,10 +158,11 @@
 #define MODES_DEBUG_NOPREAMBLE_LEVEL 25
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250      // Milliseconds
-#define MODES_INTERACTIVE_ROWS 15               // Rows on screen
-#define MODES_INTERACTIVE_TTL 60                // TTL before being removed
+#define MODES_INTERACTIVE_ROWS          22      // Rows on screen
+#define MODES_INTERACTIVE_DELETE_TTL   300      // Delete from the list after 300 seconds
+#define MODES_INTERACTIVE_DISPLAY_TTL   60      // Delete from display after 60 seconds
 
-#define MODES_NET_MAX_FD 1024
+#define MODES_NET_MAX_FD             1024
 #define MODES_NET_INPUT_RAW_PORT    30001
 #define MODES_NET_OUTPUT_RAW_PORT   30002
 #define MODES_NET_OUTPUT_SBS_PORT   30003
@@ -174,14 +178,14 @@
 
 #define MODES_NOTUSED(V) ((void) V)
 
-/* ======================== structure declarations ========================= */
+//======================== structure declarations =========================
 
 // Structure used to describe a networking client
 struct client {
     int  fd;                           // File descriptor
     int  service;                      // TCP port the client is connected to
-    char buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
     int  buflen;                       // Amount of data on buffer
+    char buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
 };
 
 // Structure used to describe an aircraft in iteractive mode
@@ -254,6 +258,9 @@ struct {                             // Internal state
     int            rawOutUsed;                // How much of the buffer is currently used
     char          *beastOut;                  // Buffer for building beast output data
     int            beastOutUsed;              // How much if the buffer is currently used
+#ifdef _WIN32
+    WSADATA        wsaData;                   // Windows socket initialisation
+#endif
 
     // Configuration
     char *filename;                  // Input form file, --ifile option
@@ -278,7 +285,8 @@ struct {                             // Internal state
     int   quiet;                     // Suppress stdout
     int   interactive;               // Interactive mode
     int   interactive_rows;          // Interactive mode: max number of rows
-    int   interactive_ttl;           // Interactive mode: TTL before deletion
+    int   interactive_display_ttl;   // Interactive mode: TTL display
+    int   interactive_delete_ttl;    // Interactive mode: TTL before deletion
     int   stats;                     // Print stats at exit in --ifile mode
     int   onlyaddr;                  // Print only ICAO addresses
     int   metric;                    // Use metric units
@@ -373,28 +381,46 @@ struct modesMessage {
     int  bFlags;                // Flags related to fields in this structure
 };
 
-/* ======================== function declarations ========================= */
+// ======================== function declarations =========================
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+//
+// Functions exported from mode_ac.c
+//
 int  detectModeA       (uint16_t *m, struct modesMessage *mm);
 void decodeModeAMessage(struct modesMessage *mm, int ModeA);
 int  ModeAToModeC      (unsigned int ModeA);
 
-void interactiveShowData(void);
+//
+// Functions exported from mode_s.c
+//
+void detectModeS        (uint16_t *m, uint32_t mlen);
+void decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
+void displayModesMessage(struct modesMessage *mm);
+void useModesMessage    (struct modesMessage *mm);
+void computeMagnitudeVector();
+void decodeCPR          (struct aircraft *a, int fflag, int surface);
+int  decodeCPRrelative  (struct aircraft *a, int fflag, int surface);
+void modesInitErrorInfo ();
+//
+// Functions exported from interactive.c
+//
 struct aircraft* interactiveReceiveData(struct modesMessage *mm);
+void  interactiveShowData(void);
+void  interactiveRemoveStaleAircrafts(void);
+int   decodeBinMessage   (struct client *c, char *p);
+
+//
+// Functions exported from net_io.c
+//
+void modesInitNet         (void);
+void modesReadFromClients (void);
 void modesSendAllClients  (int service, void *msg, int len);
-void modesSendRawOutput   (struct modesMessage *mm);
-void modesSendBeastOutput (struct modesMessage *mm);
-void modesSendSBSOutput   (struct modesMessage *mm);
-void useModesMessage      (struct modesMessage *mm);
-
-int  fixBitErrors         (unsigned char *msg, int bits, int maxfix, char *fixedbits);
-
-void modesInitErrorInfo   ();
-int  modesMessageLenByType(int type);
+void modesQueueOutput     (struct modesMessage *mm);
+void modesReadFromClient(struct client *c, char *sep, int(*handler)(struct client *, char *));
 
 #ifdef __cplusplus
 }
