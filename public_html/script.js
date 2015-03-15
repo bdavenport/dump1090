@@ -2,6 +2,7 @@
 var GoogleMap     = null;
 var Planes        = {};
 var PlanesOnMap   = 0;
+//var redOnMap	  = 0;
 var PlanesOnTable = 0;
 var PlanesToReap  = 0;
 var SelectedPlane = null;
@@ -11,7 +12,7 @@ var iSortCol=-1;
 var bSortASC=true;
 var bDefaultSortASC=true;
 var iDefaultSortCol=3;
-
+var  dist = null;
 // Get current map settings
 CenterLat = Number(localStorage['CenterLat']) || CONST_CENTERLAT;
 CenterLon = Number(localStorage['CenterLon']) || CONST_CENTERLON;
@@ -62,6 +63,8 @@ function initialize() {
 	}
 	// Push OSM on to the end
 	mapTypeIds.push("OSM");
+	mapTypeIds.push("OSM2");
+	mapTypeIds.push("OAIP");
 	mapTypeIds.push("dark_map");
 
 	// Styled Map to outline airports and highways
@@ -134,7 +137,7 @@ function initialize() {
 	var mapOptions = {
 		center: new google.maps.LatLng(CenterLat, CenterLon),
 		zoom: ZoomLvl,
-		mapTypeId: google.maps.MapTypeId.ROADMAP,
+		mapTypeId: StandardMapType,
 		mapTypeControl: true,
 		streetViewControl: false,
 		mapTypeControlOptions: {
@@ -155,8 +158,57 @@ function initialize() {
 		name: "OpenStreetMap",
 		maxZoom: 18
 	}));
+	
+	//Define OSM2 (cycle) map type pointing at the OpenCycleMap tile server
+	GoogleMap.mapTypes.set("OSM2", new google.maps.ImageMapType({
+		getTileUrl: function(coord, zoom) {
+			return "http://tile3.opencyclemap.org/landscape/" + zoom + "/" + coord.x + "/" + coord.y + ".png";
+		},
+		tileSize: new google.maps.Size(256, 256),
+		name: "OpenCycleMap",
+		maxZoom: 18
+	}));
+	
+	// Define OAIP map type pointing at the OpenCycleMap tile server with Open AIP overlay
+	var aipoverlay = new google.maps.ImageMapType({
+		getTileUrl: function(coord, zoom) {
+			// convert y tile index to TMS System (invert tile y origin from top to bottom of map)
+			var aipoverlay_ymax = 1 << zoom;
+			var aipoverlay_y = aipoverlay_ymax - coord.y - 1;
+			// return tile adress
+			return "http://2.tile.maps.openaip.net/geowebcache/service/tms/1.0.0/openaip_basemap@png/" + zoom + "/" + coord.x + "/" + aipoverlay_y + ".png"; //Overlay Airspace openAIP
+		},
+		tileSize: new google.maps.Size(256, 256)
+	});
+	GoogleMap.mapTypes.set("OAIP", new google.maps.ImageMapType({
+		getTileUrl: function(coord, zoom) {
+			return "http://tile3.opencyclemap.org/landscape/" + zoom + "/" + coord.x + "/" + coord.y + ".png"; //OSM Cycle
+		},
+		tileSize: new google.maps.Size(256, 256),
+		name: "OpenAIPMap",
+		maxZoom: 18
+	}));
+	
+	// we check mapType when it is changing
+	google.maps.event.addListener( GoogleMap, "maptypeid_changed", function( evnt ) {
+		if(GoogleMap.mapTypeId === "OAIP") {
+			// show my custom map layer - but only if its not already there
+			// note: you could also check more specifily your map type here
+				if(GoogleMap.overlayMapTypes.getLength() == 0) {
+					GoogleMap.overlayMapTypes.insertAt(0, aipoverlay);
+				}
+		} else {
+			// if something else, remove it 
+			// note: you could also check more specifily your map type here, but for now
+			// we just check if something is already there
+				if (GoogleMap.overlayMapTypes.getLength() > 0){
+					GoogleMap.overlayMapTypes.removeAt(0);
+				}
+		}
+	});
 
 	GoogleMap.mapTypes.set("dark_map", styledMap);
+	
 	
 	// Listeners for newly created Map
     google.maps.event.addListener(GoogleMap, 'center_changed', function() {
@@ -183,7 +235,23 @@ function initialize() {
           title: 'My Radar Site',
           zIndex: -99999
         });
-        
+    
+//         // Add home marker if requested
+// 	if (airportShow && (typeof airportLat !==  'undefined' || typeof airportLon !==  'undefined')) {
+// 	    var airportMarker  = new google.maps.LatLng(SiteLat, SiteLon);
+// 	    var airportImage = new google.maps.MarkerImage(
+// 	        'http://maps.google.com/mapfiles/kml/pal4/icon57.png',
+//             new google.maps.Size(32, 32),   // Image size
+//             new google.maps.Point(0, 0),    // Origin point of image
+//             new google.maps.Point(16, 16)); // Position where marker should point 
+// 	    var marker = new google.maps.Marker({
+//           position: airportMarker,
+//           map: GoogleMap,
+//           icon: airportImage,
+//           title: 'My Radar Site',
+//           zIndex: -99999
+//         });
+	    
         if (SiteCircles) {
             for (var i=0;i<SiteCirclesDistances.length;i++) {
               drawCircle(marker, SiteCirclesDistances[i]); // in meters
@@ -228,7 +296,7 @@ function reaper() {
 				// Reap it.
 				delete Planes[reap];
 			}
-			PlanesToReap++;
+			//PlanesToReap++;
 		}
 	};
 } 
@@ -267,9 +335,9 @@ function refreshSelected() {
 	} else if (selected && selected.squawk == 7700) { // General Emergency
 		html += '&nbsp;<span class="squawk7700">&nbsp;Squawking: General Emergency&nbsp;</span>';
 	} else if (selected && selected.flight != '') {
-		html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
-	    html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
-        html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
+	//	html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
+	  //  html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
+        //html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
 	    html += '&nbsp;<a href="http://flightaware.com/live/flight/'+selected.flight+'" target="_blank">[FlightAware]</a>';
 	}
 	html += '<td></tr>';
@@ -395,7 +463,11 @@ function normalizeTrack(track, valid){
 
 // Refeshes the larger table of all the planes
 function refreshTableInfo() {
-	var html = '<table id="tableinfo" width="100%">';
+	//var html = '<table id="tableinfo" width="100%">';
+	var html = '<hr width=80%>';
+        //html += 'Planes in table: ' + (PlanesOnTable - PlanesToReap) + ' / Planes on map: ' + (PlanesOnMap - redOnMap);
+        html += 'Planes in table: ' + (PlanesOnTable - PlanesToReap) + ' / Planes on map: ' + PlanesOnMap;
+	html += '<table id="tableinfo" width="100%">';
 	html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
 	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">ICAO</td>';
 	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
@@ -494,7 +566,8 @@ function refreshTableInfo() {
 	html += '</tbody></table>';
 
 	document.getElementById('planes_table').innerHTML = html;
-
+	//top.document.title="in table:"+(PlanesOnTable - PlanesToReap);
+	top.document.title="on map:"+PlanesOnMap+" / "+"in table:"+(PlanesOnTable - PlanesToReap);
 	if (SpecialSquawk) {
     	$('#SpecialSquawkWarning').css('display', 'inline');
     } else {
@@ -623,6 +696,7 @@ function resetMap() {
     // Set and refresh
 	GoogleMap.setZoom(parseInt(ZoomLvl));
 	GoogleMap.setCenter(new google.maps.LatLng(parseFloat(CenterLat), parseFloat(CenterLon)));
+	GoogleMap.setMapTypeId(StandardMapType);
 	
 	if (SelectedPlane) {
 	    selectPlaneByHex(SelectedPlane);
@@ -649,7 +723,7 @@ function drawCircle(marker, distance) {
     // Add circle overlay and bind to marker
     var circle = new google.maps.Circle({
       map: GoogleMap,
-      radius: distance, // In meters
+      radius: distance, 
       fillOpacity: 0.0,
       strokeWeight: 1,
       strokeOpacity: 0.3
