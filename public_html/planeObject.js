@@ -269,7 +269,7 @@ var planeObject = {
 			
 			if (airplanemarker_showtext) {
 				if (this.flight.length == 0) {
-					this.mapLabel.set('text', this.seen+'');
+					this.mapLabel.set('text', ''+this.altitude+'ft|'+this.speed+'kts|'+this.seen+'seen'+"   ");
 				} else if (airplanemarker_showextended) {
 					this.mapLabel.set('text', ''+this.altitude+'ft|'+this.speed+'kts|'+this.seen+'seen'+"   ");
 				} else {
