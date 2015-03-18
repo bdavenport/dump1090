@@ -1,26 +1,150 @@
 <html>
-	<html>
 	<head>
-		<meta charset="utf-8"/>
-		<link rel="stylesheet" type="text/css" href="style.css" />
-		<link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css" />
-		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
-		<script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.3/jquery-ui.min.js"></script>
-		<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false&amp;libraries=geometry"></script>
-		<script type="text/javascript" src="maplabel-compiled.js"></script>
+		<meta charset="utf-8"/>		
+		<script type="text/javascript" src="settings.js"></script>
 		<script type="text/javascript" src="config.js"></script>
+		<link rel="stylesheet" type="text/css" href="style.css" />
+		<script>
+		if(getvalue('darkmode')){
+		  document.write('<link rel="stylesheet" type="text/css" href="/jquery-ui.custom/jquery-ui.css" />');
+		}else{
+		document.write('<link rel="stylesheet" href="http://code.jquery.com/ui/1.11.1/themes/smoothness/jquery-ui.css"/>');
+		}
+		</script>
+		<script type="text/javascript" src="colorpicker/jquery-1.11.1.min.js"></script>
+<!--		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.3/jquery.min.js"></script>-->
+		<script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.11.1/jquery-ui.min.js"></script>
+		<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false&amp;libraries=geometry"></script>
+		<script src="http://code.jquery.com/jquery-1.11.1.js"></script>
+		<script src="http://code.jquery.com/ui/1.11.1/jquery-ui.js"></script>
+		<script type="text/javascript" src="maplabel-compiled.js"></script>
 		<script type="text/javascript" src="script.js"></script>
 		<script type="text/javascript" src="planeObject.js"></script>
 		<script type="text/javascript" src="options.js"></script>
 		<script type="text/javascript" src="extension.js"></script>
-		<script type="text/javascript" src="coolclock/excanvas.js"></script>
-		<script type="text/javascript" src="coolclock/coolclock.js"></script>
-		<script type="text/javascript" src="coolclock/moreskins.js"></script>
+		<script type="text/javascript" src="/coolclock/excanvas.js"></script>
+		<script type="text/javascript" src="/coolclock/coolclock.js"></script>
+		<script type="text/javascript" src="/coolclock/moreskins.js"></script>
+
         <title id="titleonpage">DUMP1090</title>
 	</head>
 	<body onload="initialize()">
-		<div id="dialog-modal" title="Basic modal dialog" style="display:none;">
-			<p>The settings feature is coming soon. Keep checking GitHub.</p>
+		<div id="dialog-modal" title="Settings Note: Refresh Page after done setting settings tomake them take affect!" style="minwidth:500;">
+		<div id="tabs">
+		<ul>
+		  <li><a href="#fragment-1"><span>Map overlay</span></a></li>
+		  <li><a href="#fragment-6"><span>Map settings</span></a></li>
+		  <li><a href="#fragment-4"><span>Plane color</span></a></li>
+		  <li><a href="#fragment-2"><span>Flight lookup</span></a></li>
+		  <li><a href="#fragment-3"><span>GPS settings</span></a></li>
+		  <li><a href="#fragment-7"><span>settings settings</span></a></li>
+		  <li><a href="#fragment-5"><span>reset settings</span></a></li>
+		</ul>
+		<div id="fragment-2">
+		<p>flightaware show<div>
+			<button onclick="storevalue('flightawareshow','true')">true</button>
+			<button onclick="localStorage.removeItem('flightawareshow')">false</button>
+			<button onclick="alert(localStorage.getItem('flightawareshow'))">show</button>
+			</p></div>
+			<p>fr24 show<div>
+			<button onclick="storevalue('fr24show','true')">true</button>
+			<button onclick="localStorage.removeItem('fr24show')">false</button>
+			<button onclick="alert(localStorage.getItem('fr24show'))">show</button>
+			</p></div>
+			<p>flightstats show<div>
+			<button onclick="storevalue('flightstatsshow','true')">true</button>
+			<button onclick="localStorage.removeItem('flightstatsshow')">false</button>
+			<button onclick="alert(localStorage.getItem('flightstatsshow'))">show</button>
+			</p></div>
+		</div>
+		<div id="fragment-1">
+			<p>Show Site<div>
+			<button onclick="storevalue('showsite','true')">true</button>
+			<button onclick="localStorage.removeItem('showsite')">false</button>
+			<button onclick="alert(localStorage.getItem('showsite'))">show</button>
+			</p></div>
+			<p>showcircles<div>
+			<button onclick="storevalue('showcircles','true')">true</button>
+			<button onclick="localStorage.removeItem('showcircles')">false</button>
+			<button onclick="alert(localStorage.getItem('showcircles'))">show</button>
+			</p></div>
+			<p>airplanemarker_showtext<div>
+			<button onclick="storevalue('airplanemarker_showtext','true')">true</button>
+			<button onclick="localStorage.removeItem('airplanemarker_showtext')">false</button>
+			<button onclick="alert(localStorage.getItem('airplanemarker_showtext'))">show</button>
+			</p></div>
+			<p>airplanemarker_showextended<div>
+			<button onclick="storevalue('airplanemarker_showextended','true')">true</button>
+			<button onclick="localStorage.removeItem('airplanemarker_showextended')">false</button>
+			<button onclick="alert(localStorage.getItem('airplanemarker_showextended'))">show</button>
+			</p></div>
+		</div>
+		<div id="fragment-3">
+		<div><p>Map Lat and Lon:
+			<form name="maplatlon"  onsubmit="return validateFormlatlon('maplatlon','maplat','maplon')" method="post">
+			Lat: <input type="text" name="maplat">
+			Lon: <input type="text" name="maplon">
+			<input type="submit" value="Submit">
+			<button onclick="alert(localStorage.getItem('maplat')+','+localStorage.getItem('maplon'))">show</button>
+			</form>
+			</p></div>
+			<div><p>Site Lat and Lon:
+			<form name="sitelatlon"  onsubmit="return validateFormlatlon('sitelatlon','sitelat','sitelon')" method="post">
+			Lat: <input type="text" name="sitelat">
+			Lon: <input type="text" name="sitelon">
+			<input type="submit" value="Submit">
+			<button onclick="alert(localStorage.getItem('sitelat')+','+localStorage.getItem('sitelon'))">show</button>
+			</form>
+			</p></div>
+		</div>
+		<div id="fragment-4">
+		  <iframe src="/colorpicker.html" width="100%" height="400" scrolling="no" frameBorder="0"></iframe>
+		</div>
+		<div id="fragment-5">
+		  <div><p>Warring will reset all setting to defalt ALL SETTINGS WILL BE LOST!!</p>
+			<button onclick="return set_reset()">Reset</button>
+		</div>
+		</div>
+		 <div id="fragment-6">
+		  <p>Metric<div>
+			<button onclick="storevalue('metric','true')">true</button>
+			<button onclick="localStorage.removeItem('metric')">false</button>
+			<button onclick="alert(localStorage.getItem('metric'))">show</button>
+			</p></div>
+		  <p>Map zoom:
+			<div>
+			<select name="zoom" onchange="storevalue('zoom',value)" >
+			  <option value="null">select zoom</option>
+			  <option value="1">1</option>
+			  <option value="2">2</option>
+			  <option value="3">3</option>
+			  <option value="4">4</option>
+			  <option value="5">5</option>
+			  <option value="6">6</option>
+			  <option value="7">7</option>
+			  <option value="8">8</option>
+			  <option value="9">9</option>
+			  <option value="10">10</option>
+			  <option value="11">11</option>
+			  <option value="12">12</option>
+			  <option value="13">13</option>
+			  <option value="14">14</option>
+			  <option value="15">15</option>
+			  <option value="16">16</option>
+			  <option value="17">17</option>
+			  <option value="18">18</option>
+			  </select>
+			<button onclick="alert(localStorage.getItem('zoom'))">show</button>
+			</p></div>
+	      	</div>
+	      	<div id="fragment-7">
+		<p>Dark Mode<div>
+			    <button onclick="storevalue('darkmode','true')">true</button>
+			    <button onclick="localStorage.removeItem('darkmode')">false</button>
+			    <button onclick="alert(localStorage.getItem('darkmode'))">show</button>
+		</p></div>
+	      </div>
+	      </div>
 		</div>
 		<div id="map_container">
 			<div id="map_canvas"></div>
@@ -46,11 +170,10 @@
 						</td>
 						<td>&nbsp;</td>
 						<td width="150" style="text-align: center;" id="setings_button" class="pointer">
-						    [ <span onclick="optionsModal();">Settings</span> ]
+						    [ <span class="link" onclick="optionsModal();">Settings</span> ]
 						</td>
 					</tr></table>
 				</div>
-
 				<div id="plane_detail"></div>
 				<div id="options"></div>
 				<div id="planes_table"></div>
@@ -63,5 +186,8 @@
             Please do not call the local authorities, they already know about it if it is valid squak.
 		</div>
 		<div id="container_splitter"></div>
+		<script>
+		$( "#tabs" ).tabs();
+		</script>
 	</body>
 </html>
