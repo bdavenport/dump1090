@@ -236,22 +236,7 @@ function initialize() {
           zIndex: -99999
         });
     
-//         // Add home marker if requested
-// 	if (airportShow && (typeof airportLat !==  'undefined' || typeof airportLon !==  'undefined')) {
-// 	    var airportMarker  = new google.maps.LatLng(SiteLat, SiteLon);
-// 	    var airportImage = new google.maps.MarkerImage(
-// 	        'http://maps.google.com/mapfiles/kml/pal4/icon57.png',
-//             new google.maps.Size(32, 32),   // Image size
-//             new google.maps.Point(0, 0),    // Origin point of image
-//             new google.maps.Point(16, 16)); // Position where marker should point 
-// 	    var marker = new google.maps.Marker({
-//           position: airportMarker,
-//           map: GoogleMap,
-//           icon: airportImage,
-//           title: 'My Radar Site',
-//           zIndex: -99999
-//         });
-	    
+
         if (SiteCircles) {
             for (var i=0;i<SiteCirclesDistances.length;i++) {
               drawCircle(marker, SiteCirclesDistances[i]); // in meters
@@ -261,7 +246,6 @@ function initialize() {
 	
 	// These will run after page is complitely loaded
 	$(window).load(function() {
-        $('#dialog-modal').css('display', 'inline'); // Show hidden settings-windows content
     });
 
 	// Load up our options page
@@ -337,12 +321,12 @@ function refreshSelected() {
 	} else if (selected && selected.flight != '') {
 		if (flightawareshow) {
 		  html += '&nbsp;<a href="http://flightaware.com/live/flight/'+selected.flight+'" target="_blank">[FlightAware]</a>';
-	       }if (fr24show) {
-		 html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
-	       }if (flightstatsshow) {
-		  html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';  
-		  html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
-	       }
+ 	       }if (fr24show) {
+ 		 html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
+ 	       }if (flightstatsshow) {
+ 		  html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';  
+ 		  html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
+ 	       }
 	}
 	html += '<td></tr>';
 	
