@@ -13,5 +13,5 @@ function optionsInitalize() {
 }
 
 function optionsModal() {
-	$( "#dialog-modal" ).dialog( "open");
+	$( "#dialog-modal" ).dialog({width:950,height:550,autoOpen:true,resizable: false});
 }
