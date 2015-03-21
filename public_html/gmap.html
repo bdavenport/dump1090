@@ -1,33 +1,28 @@
 <html>
 	<head>
-		<meta charset="utf-8"/>		
-		<script type="text/javascript" src="settings.js"></script>
-		<script type="text/javascript" src="config.js"></script>
-		<link rel="stylesheet" type="text/css" href="style.css" />
-		<script>
-		if(getvalue('darkmode')){
-		  document.write('<link rel="stylesheet" type="text/css" href="/darkmode/darkmode.css" />');
-		}else{
-		document.write('<link rel="stylesheet" href="http://code.jquery.com/ui/1.11.1/themes/smoothness/jquery-ui.css"/>');
-		}
-		</script>
-		<script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.3/jquery-ui.min.js"></script>
-		<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false&amp;libraries=geometry"></script>
-		<script src="http://code.jquery.com/jquery-1.10.2.js"></script>
-		<script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
-		<script type="text/javascript" src="maplabel-compiled.js"></script>
-		<script type="text/javascript" src="script.js"></script>
-		<script type="text/javascript" src="planeObject.js"></script>
-		<script type="text/javascript" src="options.js"></script>
-		<script type="text/javascript" src="extension.js"></script>
-		<script type="text/javascript" src="/coolclock/excanvas.js"></script>
-		<script type="text/javascript" src="/coolclock/coolclock.js"></script>
-		<script type="text/javascript" src="/coolclock/moreskins.js"></script>
+		<meta charset="utf-8"/>	
+		<script  src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false&libraries=places"></script>
+		<script  src="/js/settings/settings.js"></script>
+		<script  src="/js/settings/config.js"></script>
+		<script>  
+		  if(getvalue('darkmode')){
+		    document.write('<link  rel="stylesheet" type="text/css" href="/css/darkmode.css" />');
+		    
+		  }else{
+		  document.write('<link rel="stylesheet" href="/css/style.css"/>');
+		  }</script>
+		<script async src="http://code.jquery.com/jquery-1.10.2.js"></script>
+		<script async src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
+		<script src="/js/map/maplabel-compiled.js"></script>
+		<script src="/js/script/script.js"></script>
+		<script src="/js/plane/planeObject.js"></script>
+		<script src="/js/options/options.js"></script>
+		<script src="/js/coolclock/coolclock.js"></script>
 
         <title id="titleonpage">DUMP1090</title>
 	</head>
-	<body onload="initialize()">
-		<div id="dialog-modal" title="Settings Note: Refresh Page after done setting settings tomake them take affect!" style="minwidth:500;">
+	<body onload="initialize(),setup() ">
+		<div id="dialog-modal" title="Settings Note: Settings will take affect after setting page (aka:this pop up) is closed and page will auto refresh" style="minwidth:500;">
 		<div id="tabs">
 		<ul>
 		  <li><a href="#fragment-1"><span>Map overlay</span></a></li>
@@ -40,74 +35,51 @@
 		</ul>
 		<div id="fragment-2">
 		<p>flightaware show<div>
-			<button onclick="storevalue('flightawareshow','true')">true</button>
-			<button onclick="localStorage.removeItem('flightawareshow')">false</button>
-			<button onclick="alert(localStorage.getItem('flightawareshow'))">show</button>
+			<button id="flightaware"  onclick="storevalue('flightawareshow','true'),flightaware()">true</button>
+			<button id="flightaware1"  onclick="localStorage.removeItem('flightawareshow'),flightaware()">false</button>
 			</p></div>
 			<p>fr24 show<div>
-			<button onclick="storevalue('fr24show','true')">true</button>
-			<button onclick="localStorage.removeItem('fr24show')">false</button>
-			<button onclick="alert(localStorage.getItem('fr24show'))">show</button>
+			<button id="fr24"  onclick="storevalue('fr24show','true'),fr24()">true</button>
+			<button id="fr241"  onclick="localStorage.removeItem('fr24show'),fr24()">false</button>
 			</p></div>
 			<p>flightstats show<div>
-			<button onclick="storevalue('flightstatsshow','true')">true</button>
-			<button onclick="localStorage.removeItem('flightstatsshow')">false</button>
-			<button onclick="alert(localStorage.getItem('flightstatsshow'))">show</button>
+			<button id="flightstats" onclick="storevalue('flightstatsshow','true'),flightstats()">true</button>
+			<button id="flightstats1" onclick="localStorage.removeItem('flightstatsshow'),flightstats()">false</button>
 			</p></div>
 		</div>
 		<div id="fragment-1">
 			<p>Show Site<div>
-			<button onclick="storevalue('showsite','true')">true</button>
-			<button onclick="localStorage.removeItem('showsite')">false</button>
-			<button onclick="alert(localStorage.getItem('showsite'))">show</button>
+			<button id="showsite" onclick="storevalue('showsite','true'),showsite()">true</button>
+			<button id="showsite1" onclick="localStorage.removeItem('showsite'),showsite()">false</button>
 			</p></div>
 			<p>showcircles<div>
-			<button onclick="storevalue('showcircles','true')">true</button>
-			<button onclick="localStorage.removeItem('showcircles')">false</button>
-			<button onclick="alert(localStorage.getItem('showcircles'))">show</button>
+			<button id="showcircles" onclick="storevalue('showcircles','true'),showcircles()">true</button>
+			<button id="showcircles1" onclick="localStorage.removeItem('showcircles'),showcircles()">false</button>
 			</p></div>
 			<p>airplanemarker_showtext<div>
-			<button onclick="storevalue('airplanemarker_showtext','true')">true</button>
-			<button onclick="localStorage.removeItem('airplanemarker_showtext')">false</button>
-			<button onclick="alert(localStorage.getItem('airplanemarker_showtext'))">show</button>
+			<button id="airplanemarker" onclick="storevalue('airplanemarker_showtext','true'),airplanemarker()">true</button>
+			<button id="airplanemarker1" onclick="localStorage.removeItem('airplanemarker_showtext'),airplanemarker()">false</button>
 			</p></div>
 			<p>airplanemarker_showextended<div>
-			<button onclick="storevalue('airplanemarker_showextended','true')">true</button>
-			<button onclick="localStorage.removeItem('airplanemarker_showextended')">false</button>
-			<button onclick="alert(localStorage.getItem('airplanemarker_showextended'))">show</button>
+			<button id="airplanemarkera" onclick="storevalue('airplanemarker_showextended','true'),airplanemarkera()">true</button>
+			<button id="airplanemarkera1" onclick="localStorage.removeItem('airplanemarker_showextended'),airplanemarkera()">false</button>
 			</p></div>
 		</div>
 		<div id="fragment-3">
-		<div><p>Map Lat and Lon:
-			<form name="maplatlon"  onsubmit="return validateFormlatlon('maplatlon','maplat','maplon')" method="post">
-			Lat: <input type="text" name="maplat">
-			Lon: <input type="text" name="maplon">
-			<input type="submit" value="Submit">
-			<button onclick="alert(localStorage.getItem('maplat')+','+localStorage.getItem('maplon'))">show</button>
-			</form>
-			</p></div>
-			<div><p>Site Lat and Lon:
-			<form name="sitelatlon"  onsubmit="return validateFormlatlon('sitelatlon','sitelat','sitelon')" method="post">
-			Lat: <input type="text" name="sitelat">
-			Lon: <input type="text" name="sitelon">
-			<input type="submit" value="Submit">
-			<button onclick="alert(localStorage.getItem('sitelat')+','+localStorage.getItem('sitelon'))">show</button>
-			</form>
-			</p></div>
+			<iframe src="/html/lat_lon.html" width="100%" height="430" no-scroll="no" frameBorder="0"></iframe>
 		</div>
 		<div id="fragment-4">
-		  <iframe src="colorpicker.html" width="100%" height="400" scrolling="no" frameBorder="0"></iframe>
+		 <iframe src="/html/colorpicker.html" width="100%" height="250" no-scroll="no" frameBorder="0"></iframe>
 		</div>
 		<div id="fragment-5">
 		  <div><p>Warring will reset all setting to defalt ALL SETTINGS WILL BE LOST!!</p>
-			<button onclick="return set_reset()">Reset</button>
+			<button onclick="return reset()">Reset</button>
 		</div>
 		</div>
 		 <div id="fragment-6">
 		  <p>Metric<div>
-			<button onclick="storevalue('metric','true')">true</button>
-			<button onclick="localStorage.removeItem('metric')">false</button>
-			<button onclick="alert(localStorage.getItem('metric'))">show</button>
+			<button id="metric" onclick="storevalue('metric','true'),metric()">true</button>
+			<button id="metric1" onclick="localStorage.removeItem('metric'),metric()">false</button>
 			</p></div>
 		  <p>Map zoom:
 			<div>
@@ -137,9 +109,9 @@
 	      	</div>
 	      	<div id="fragment-7">
 		<p>Dark Mode<div>
-			    <button onclick="storevalue('darkmode','true')">true</button>
-			    <button onclick="localStorage.removeItem('darkmode')">false</button>
-			    <button onclick="alert(localStorage.getItem('darkmode'))">show</button>
+			    <button id="dark" onclick="storevalue('darkmode','true'),dark()">true</button>
+			    <button id="dark1" onclick="localStorage.removeItem('darkmode'),dark()">false</button>
+			    <iframe src="/html/settings_settings.html" width="100%" height="250" no-scroll="no" frameBorder="0"></iframe>
 		</p></div>
 	      </div>
 	      </div>
@@ -168,12 +140,12 @@
 						</td>
 						<td>&nbsp;</td>
 						<td width="150" style="text-align: center;" id="setings_button" class="pointer">
-						    [ <span class="link" onclick="optionsModal();">Settings</span> ]
+						    [ <span   class="link" onclick="optionsModal();">Settings</span> ]
 						</td>
 					</tr></table>
 				</div>
 				<div id="plane_detail"></div>
-				<div id="options"></div>
+				<div  id="options"></div>
 				<div id="planes_table"></div>
 				<div id="plane_extension"></div>
 			</div>
@@ -184,6 +156,7 @@
             Please do not call the local authorities, they already know about it if it is valid squak.
 		</div>
 		<div id="container_splitter"></div>
+		
 		<script>
 		$( "#tabs" ).tabs();
 		</script>
