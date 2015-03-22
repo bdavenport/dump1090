@@ -673,7 +673,7 @@ function resetMap() {
     
     // Set and refresh
 	GoogleMap.setZoom(parseInt(ZoomLvl));
-	//GoogleMap.setCenter(new google.maps.LatLng(parseFloat(CenterLat), parseFloat(CenterLon)));
+	GoogleMap.setCenter(new google.maps.LatLng(parseFloat(CenterLat), parseFloat(CenterLon)));
 	GoogleMap.setMapTypeId(StandardMapType);
 	
 	if (SelectedPlane) {
