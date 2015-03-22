@@ -18,6 +18,7 @@ var planeObject = {
 
 	// Data packet numbers
 	messages	: null,
+	signal		: null,
 	seen		: null,
 
 	// Vaild...
@@ -27,7 +28,7 @@ var planeObject = {
 	// GMap Details
 	marker		: null,
 	markerColor	: MarkerColor,
-	mapLabel  : null,
+	mapLabel  	: null,
 	lines		: [],
 	trackdata	: new Array(),
 	trackline	: new Array(),
@@ -148,6 +149,7 @@ var planeObject = {
 			this.squawk	= data.squawk;
 			this.icao	= data.hex;
 			this.messages	= data.messages;
+			this.signal	= data.signal;
 			this.seen	= data.seen;
 
 			// If no packet in over 58 seconds, consider the plane reapable
