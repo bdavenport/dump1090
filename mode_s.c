@@ -112,24 +112,19 @@ int modesMessageLenByType(int type) {
 int fixSingleBitErrors(unsigned char *msg, int bits) {
     int j;
     unsigned char aux[MODES_LONG_MSG_BYTES];
-
     memcpy(aux, msg, bits/8);
-
     // Do not attempt to error correct Bits 0-4. These contain the DF, and must
     // be correct because we can only error correct DF17
     for (j = 5; j < bits; j++) {
         int byte    = j/8;
         int bitmask = 1 << (7 - (j & 7));
-
         aux[byte] ^= bitmask; // Flip j-th bit
-
         if (0 == modesChecksum(aux, bits)) {
             // The error is fixed. Overwrite the original buffer with the 
             // corrected sequence, and returns the error bit position
             msg[byte] = aux[byte];
             return (j);
         }
-
         aux[byte] ^= bitmask; // Flip j-th bit back again
     }
     return (-1);
@@ -144,37 +139,29 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 int fixTwoBitsErrors(unsigned char *msg, int bits) {
     int j, i;
     unsigned char aux[MODES_LONG_MSG_BYTES];
-
     memcpy(aux, msg, bits/8);
-
     // Do not attempt to error correct Bits 0-4. These contain the DF, and must
     // be correct because we can only error correct DF17
     for (j = 5; j < bits; j++) {
         int byte1    = j/8;
         int bitmask1 = 1 << (7 - (j & 7));
         aux[byte1] ^= bitmask1; // Flip j-th bit
-
         // Don't check the same pairs multiple times, so i starts from j+1
         for (i = j+1; i < bits; i++) {
             int byte2    = i/8;
             int bitmask2 = 1 << (7 - (i & 7));
-
             aux[byte2] ^= bitmask2; // Flip i-th bit
-
             if (0 == modesChecksum(aux, bits)) {
                 // The error is fixed. Overwrite the original buffer with
                 // the corrected sequence, and returns the error bit position
                 msg[byte1] = aux[byte1];
                 msg[byte2] = aux[byte2];
-
                 // We return the two bits as a 16 bit integer by shifting
                 // 'i' on the left. This is possible since 'i' will always
                 // be non-zero because i starts from j+1
                 return (j | (i << 8));
-
             aux[byte2] ^= bitmask2; // Flip i-th bit back
             }
-
         aux[byte1] ^= bitmask1; // Flip j-th bit back
         }
     }
@@ -282,7 +269,6 @@ void modesInitErrorInfo() {
                             (int)bitErrorTable[i].syndrome);
         }
     }
-
     for (i = 0;  i < NERRORINFO;  i++) {
         printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
                bitErrorTable[i].syndrome,
@@ -499,7 +485,6 @@ void inittmsg1() {
                 tmsg1[i][bytepos] ^= mask;
         }
 }
-
 // Run sanity check on all but first 5 messages / bits, as those bits
 // are not corrected.
 //
@@ -519,7 +504,6 @@ void checktmsg1(FILE *out) {
                 }
         }
 }
-
 void inittmsg2() {
         int i, j, n, bytepos0, bytepos1, mask0, mask1;
         n = 0;
@@ -536,14 +520,12 @@ void inittmsg2() {
                 }
         }
 }
-
 long difftvusec(struct timeval *t0, struct timeval *t1) {
         long res = 0;
         res = t1->tv_usec-t0->tv_usec;
         res += (t1->tv_sec-t0->tv_sec)*1000000L;
         return res;
 }
-
 // the actual test code
 void testAndTimeBitCorrection() {
         struct timeval starttv, endtv;
@@ -1204,16 +1186,12 @@ void displayModesMessage(struct modesMessage *mm) {
 /*
             } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
                 printf("    BDS 1,0 Datalink Capability report\n");
-
             } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
                 printf("    BDS 3,0 ACAS Active Resolution Advisory\n");
-
             } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
                 printf("    BDS 6,1 Emergency/Priority Status\n");
-
             } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
                 printf("    BDS 6,2 Target State and Status\n");
-
             } else if ((mm->msg[4] >> 3) ==   31) { // BDS 6,5 Extended Squitter Aircraft Operational Status
                 printf("    BDS 6,5 Aircraft Operational Status\n");
 */
@@ -1238,16 +1216,12 @@ void displayModesMessage(struct modesMessage *mm) {
 /*
             } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
                 printf("    BDS 1,0 Datalink Capability report\n");
-
             } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
                 printf("    BDS 3,0 ACAS Active Resolution Advisory\n");
-
             } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
                 printf("    BDS 6,1 Emergency/Priority Status\n");
-
             } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
                 printf("    BDS 6,2 Target State and Status\n");
-
             } else if ((mm->msg[4] >> 3) ==   31) { // BDS 6,5 Extended Squitter Aircraft Operational Status
                 printf("    BDS 6,5 Aircraft Operational Status\n");
 */
@@ -1572,6 +1546,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         uint16_t *pPreamble, *pPayload, *pPtr;
         uint8_t  theByte, theErrs;
         int msglen, scanlen, sigStrength;
+        int valid_preamble;
 
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
@@ -1586,25 +1561,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         if (!use_correction)  // This is not a re-try with phase correction
             {                 // so try to find a new preamble
 
-            if (Modes.mode_ac) 
-                {
-                int ModeA = detectModeA(pPreamble, &mm);
-
-                if (ModeA) // We have found a valid ModeA/C in the data                    
-                    {
-                    mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
-
-                    // Decode the received message
-                    decodeModeAMessage(&mm, ModeA);
-
-                    // Pass data to the next layer
-                    useModesMessage(&mm);
-
-                    j += MODEAC_MSG_SAMPLES;
-                    Modes.stat_ModeAC++;
-                    continue;
-                    }
-                }
+            valid_preamble = 1;
 
             // First check of relations between the first 10 samples
             // representing a valid preamble. We don't even investigate further
@@ -1623,37 +1580,68 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                 if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
-                continue;
+                // continue;
+                valid_preamble = 0;
             }
 
-            // The samples between the two spikes must be < than the average
-            // of the high spikes level. We don't test bits too near to
-            // the high levels as signals can be out of phase so part of the
-            // energy can be in the near samples
-            high = (pPreamble[0] + pPreamble[2] + pPreamble[7] + pPreamble[9]) / 6;
-            if (pPreamble[4] >= high ||
-                pPreamble[5] >= high)
-            {
-                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                    dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
-                continue;
-            }
+           if (valid_preamble) {
+                // The samples between the two spikes must be < than the average
+                // of the high spikes level. We don't test bits too near to
+                // the high levels as signals can be out of phase so part of the
+                // energy can be in the near samples
+                high = (pPreamble[0] + pPreamble[2] + pPreamble[7] + pPreamble[9]) / 6;
+                if (pPreamble[4] >= high ||
+                    pPreamble[5] >= high)
+                {
+                    if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                        *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                        dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
+                    // continue;
+                    valid_preamble=0;
+                }
+           }
 
-            // Similarly samples in the range 11-14 must be low, as it is the
-            // space between the preamble and real data. Again we don't test
-            // bits too near to high levels, see above
-            if (pPreamble[11] >= high ||
-                pPreamble[12] >= high ||
-                pPreamble[13] >= high ||
-                pPreamble[14] >= high)
-            {
-                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                    dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
+           if (valid_preamble) {
+                // Similarly samples in the range 11-14 must be low, as it is the
+                // space between the preamble and real data. Again we don't test
+                // bits too near to high levels, see above
+                if (pPreamble[11] >= high ||
+                    pPreamble[12] >= high ||
+                    pPreamble[13] >= high ||
+                    pPreamble[14] >= high)
+                {
+                    if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                        *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                        dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
+                    // continue;
+                    valid_preamble = 0;
+                }
+           }
+
+           if (valid_preamble) {
+                Modes.stat_valid_preamble++;
+            } else {
+                if (Modes.mode_ac)
+                    {
+                    int ModeA = detectModeA(pPreamble, &mm);
+
+                    if (ModeA) // We have found a valid ModeA/C in the data
+                        {
+                        mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
+
+                        // Decode the received message
+                        decodeModeAMessage(&mm, ModeA);
+
+                        // Pass data to the next layer
+                        useModesMessage(&mm);
+
+                        j += MODEAC_MSG_SAMPLES;
+                        Modes.stat_ModeAC++;
+                        continue;
+                        }
+                    }
                 continue;
             }
-            Modes.stat_valid_preamble++;
         } 
 
         else {
@@ -2198,4 +2186,3 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
 }
 //
 // ===================== Mode S detection and decoding  ===================
-//
