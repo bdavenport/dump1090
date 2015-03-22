@@ -55,6 +55,8 @@ function setup(){
   showcircles();
   airplanemarker();
   airplanemarkera();
+  coolclock1();
+  normalclock1();
 }
 color1 = rgbToHex( Number(getvalue('setr')), Number(getvalue('setg')), Number(getvalue('setb'))  );
 color2 = rgbToHex( Number(getvalue('set2r')), Number(getvalue('set2g')), Number(getvalue('set2b'))  );
@@ -66,7 +68,22 @@ color2 = rgbToHex( Number(getvalue('set2r')), Number(getvalue('set2g')), Number(
 		    document.getElementById("flightaware").style.background=color2;//red//true
 		    document.getElementById("flightaware1").style.background=color1;//green//false
 }}
-
+ function normalclock1(){
+		  if(getvalue('normalclock')){
+		    document.getElementById("normalclock").style.background=color1;//green//true
+		    document.getElementById("normalclock1").style.background=color2;//red//false
+		  }else{
+		    document.getElementById("normalclock").style.background=color2;//red//true
+		    document.getElementById("normalclock1").style.background=color1;//green//false
+}}
+  function coolclock1(){
+		  if(getvalue('coolclock')){
+		    document.getElementById("coolclock").style.background=color1;//green//true
+		    document.getElementById("coolclock1").style.background=color2;//red//false
+		  }else{
+		    document.getElementById("coolclock").style.background=color2;//red//true
+		    document.getElementById("coolclock1").style.background=color1;//green//false
+}}
 function fr24(){
 		    if(getvalue('fr24show')){
 		      document.getElementById("fr24").style.background=color1;//green//true
