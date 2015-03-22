@@ -33,7 +33,9 @@ function set_reset(test) {
     storevalue('airplanemarker_showextended','true');
     storevalue('airplanemarker_showtext','true');
     storevalue('zoom',9);
-    storevalue('darkmode','false');
+    storevalue('darkmode','true');
+    storevalue('coolclock','true');
+    storevalue('normalclock','true');
     return true;
     
 }
