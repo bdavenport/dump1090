@@ -17,6 +17,7 @@
 		<script src="/js/script/script.js"></script>
 		<script src="/js/plane/planeObject.js"></script>
 		<script src="/js/options/options.js"></script>
+		<script  src="/js/extension/extension.js"></script>
 		<script src="/js/coolclock/coolclock.js"></script>
 
         <title id="titleonpage">DUMP1090</title>
@@ -108,11 +109,19 @@
 			</p></div>
 	      	</div>
 	      	<div id="fragment-7">
-		<p>Dark Mode<div>
+		<div><p>Dark Mode </p>
 			    <button id="dark" onclick="storevalue('darkmode','true'),dark()">true</button>
 			    <button id="dark1" onclick="localStorage.removeItem('darkmode'),dark()">false</button>
+			    <br>
+			    <p>analog clock </p>
+			    <button id="coolclock" onclick="storevalue('coolclock','true'),coolclock1()">true</button>
+			    <button id="coolclock1" onclick="localStorage.removeItem('coolclock'),coolclock1()">false</button>
+			    <br>
+			    <p>digtal clock </p>
+			    <button id="normalclock" onclick="storevalue('normalclock','true'),normalclock1()">true</button>
+			    <button id="normalclock1" onclick="localStorage.removeItem('normalclock'),normalclock1()">false</button>
 			    <iframe src="/html/settings_settings.html" width="100%" height="250" no-scroll="no" frameBorder="0"></iframe>
-		</p></div>
+			    </div>
 	      </div>
 	      </div>
 		</div>
@@ -123,16 +132,18 @@
 			<div id="sidebar_canvas">
 				<div id="timestamps" style="align: center">
 					<table width="100%"><tr>
-						<td>Local Time</td>
-						<td>
-							<canvas id="localclock" class="CoolClock:classic:40"></canvas>
-						</td>
-						<td>UTC Time</td>
-						<td>
-							<canvas id="gmtclock" class="CoolClock:classic:40::0"></canvas>
-						</td>
+					<script>
+					if(getvalue('coolclock')){
+					  coolclock();
+					}
+					if(getvalue('normalclock')){
+					  normalclockcanvas();
+					}
+					</script>
 					</tr></table>
 				</div>
+				<div style="display:inline-block;" id="time"></div>
+				<div style="display:inline-block;margin-left:100px;" id="timegmt"></div>
 				<div id="sudo_buttons">
 					<table width="100%"><tr>
 						<td width="150" style="text-align: center;" class="pointer">
