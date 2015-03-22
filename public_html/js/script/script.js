@@ -2,7 +2,6 @@
 var GoogleMap     = null;
 var Planes        = {};
 var PlanesOnMap   = 0;
-//var redOnMap	  = 0;
 var PlanesOnTable = 0;
 var PlanesToReap  = 0;
 var SelectedPlane = null;
@@ -12,14 +11,14 @@ var iSortCol=-1;
 var bSortASC=true;
 var bDefaultSortASC=true;
 var iDefaultSortCol=3;
-var  dist = null;
+
 // Get current map settings
 CenterLat = Number(localStorage['CenterLat']) || CONST_CENTERLAT;
 CenterLon = Number(localStorage['CenterLon']) || CONST_CENTERLON;
 ZoomLvl   = Number(localStorage['ZoomLvl']) || CONST_ZOOMLVL;
 
 function fetchData() {
-	$.getJSON('/dump1090/data.json', function(data) {
+	$.getJSON('data.json', function(data) {
 		PlanesOnMap = 0
 		SpecialSquawk = false;
 		
@@ -137,6 +136,7 @@ function initialize() {
 	var mapOptions = {
 		center: new google.maps.LatLng(CenterLat, CenterLon),
 		zoom: ZoomLvl,
+// 		mapTypeId: google.maps.MapTypeId.ROADMAP,
 		mapTypeId: StandardMapType,
 		mapTypeControl: true,
 		streetViewControl: false,
@@ -158,8 +158,7 @@ function initialize() {
 		name: "OpenStreetMap",
 		maxZoom: 18
 	}));
-	
-	//Define OSM2 (cycle) map type pointing at the OpenCycleMap tile server
+//Define OSM2 (cycle) map type pointing at the OpenCycleMap tile server
 	GoogleMap.mapTypes.set("OSM2", new google.maps.ImageMapType({
 		getTileUrl: function(coord, zoom) {
 			return "http://tile3.opencyclemap.org/landscape/" + zoom + "/" + coord.x + "/" + coord.y + ".png";
@@ -206,9 +205,8 @@ function initialize() {
 				}
 		}
 	});
-
+ 
 	GoogleMap.mapTypes.set("dark_map", styledMap);
-	
 	
 	// Listeners for newly created Map
     google.maps.event.addListener(GoogleMap, 'center_changed', function() {
@@ -235,8 +233,7 @@ function initialize() {
           title: 'My Radar Site',
           zIndex: -99999
         });
-    
-
+        
         if (SiteCircles) {
             for (var i=0;i<SiteCirclesDistances.length;i++) {
               drawCircle(marker, SiteCirclesDistances[i]); // in meters
@@ -246,6 +243,7 @@ function initialize() {
 	
 	// These will run after page is complitely loaded
 	$(window).load(function() {
+        $('#dialog-modal').css('display', 'inline'); // Show hidden settings-windows content
     });
 
 	// Load up our options page
@@ -319,14 +317,10 @@ function refreshSelected() {
 	} else if (selected && selected.squawk == 7700) { // General Emergency
 		html += '&nbsp;<span class="squawk7700">&nbsp;Squawking: General Emergency&nbsp;</span>';
 	} else if (selected && selected.flight != '') {
-		if (flightawareshow) {
-		  html += '&nbsp;<a href="http://flightaware.com/live/flight/'+selected.flight+'" target="_blank">[FlightAware]</a>';
- 	       }if (fr24show) {
- 		 html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
- 	       }if (flightstatsshow) {
- 		  html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';  
- 		  html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
- 	       }
+		html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
+	    html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
+        html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
+	    html += '&nbsp;<a href="http://flightaware.com/live/flight/'+selected.flight+'" target="_blank">[FlightAware]</a>';
 	}
 	html += '<td></tr>';
 	
@@ -451,31 +445,22 @@ function normalizeTrack(track, valid){
 
 // Refeshes the larger table of all the planes
 function refreshTableInfo() {
-	//var html = '<table id="tableinfo" width="100%">';
-	var html = '<hr width=80%>';
-        //html += 'Planes in table: ' + (PlanesOnTable - PlanesToReap) + ' / Planes on map: ' + (PlanesOnMap - redOnMap);
-        html += 'Planes in table: ' + (PlanesOnTable - PlanesToReap) + ' / Planes on map: ' + PlanesOnMap;
-	html += '<table id="tableinfo" width="100%">';
-	html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
-	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">ICAO</td>';
-	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
-	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" ' +
-	    'align="right">Squawk</td>';
-	html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" ' +
-	    'align="right">Altitude</td>';
-	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" ' +
-	    'align="right">Speed</td>';
-        // Add distance column header to table if site coordinates are provided
-        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
-            html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" ' +
-                'align="right">Distance</td>';
+        var html = '<hr width=80%>';
+        html +=  ' Planes on map: ' + PlanesOnMap + '/Planes in table: ' + (PlanesOnTable - PlanesToReap);
+        html += '<table id="tableinfo" width="100%">';
+        var icount = 0;
+        var theader = ["ICAO","Flight","Squawk","Altitude","Speed"];
+        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined'))
+                theader.push("Distance");
+        theader = theader.concat(["Track","Msgs","Signal","Seen"]);
+
+        html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
+        for ( var item in theader ) {
+                html += '<td onclick="setASC_DESC(\''+icount+'\');sortTable(\'tableinfo\',\''+icount+'\');" '+((icount>2) ? 'align="right"' : '' )+'>'+theader[item]+'</td>';
+                icount++;
         }
-	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'6\');" ' +
-	    'align="right">Track</td>';
-	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'7\');" ' +
-	    'align="right">Msgs</td>';
-	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'8\');" ' +
-	    'align="right">Seen</td></thead><tbody>';
+        html += '</thead><tbody>';
+
 	for (var tablep in Planes) {
 		var tableplane = Planes[tablep]
 		if (!tableplane.reapable) {
@@ -547,6 +532,7 @@ function refreshTableInfo() {
     	    }
     	    html += '</td>';
 			html += '<td align="right">' + tableplane.messages + '</td>';
+			html += '<td align="right">' + tableplane.signal + '</td>';
 			html += '<td align="right">' + tableplane.seen + '</td>';
 			html += '</tr>';
 		}
@@ -554,8 +540,8 @@ function refreshTableInfo() {
 	html += '</tbody></table>';
 
 	document.getElementById('planes_table').innerHTML = html;
-	//top.document.title="in table:"+(PlanesOnTable - PlanesToReap);
 	top.document.title="on map:"+PlanesOnMap+" / "+"in table:"+(PlanesOnTable - PlanesToReap);
+
 	if (SpecialSquawk) {
     	$('#SpecialSquawkWarning').css('display', 'inline');
     } else {
@@ -683,7 +669,7 @@ function resetMap() {
     
     // Set and refresh
 	GoogleMap.setZoom(parseInt(ZoomLvl));
-	GoogleMap.setCenter(new google.maps.LatLng(parseFloat(CenterLat), parseFloat(CenterLon)));
+	//GoogleMap.setCenter(new google.maps.LatLng(parseFloat(CenterLat), parseFloat(CenterLon)));
 	GoogleMap.setMapTypeId(StandardMapType);
 	
 	if (SelectedPlane) {
@@ -711,7 +697,7 @@ function drawCircle(marker, distance) {
     // Add circle overlay and bind to marker
     var circle = new google.maps.Circle({
       map: GoogleMap,
-      radius: distance, 
+      radius: distance, // In meters
       fillOpacity: 0.0,
       strokeWeight: 1,
       strokeOpacity: 0.3
