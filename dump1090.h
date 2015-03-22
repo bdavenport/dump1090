@@ -27,440 +27,993 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
-#ifndef __DUMP1090_H
-#define __DUMP1090_H
 
-// File Version number
-// ====================
-// Format is : MajorVer.MinorVer.DayMonth.Year"
-// MajorVer changes only with significant changes
-// MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
-// DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
+#include "dump1090.h"
 //
-#define MODES_DUMP1090_VERSION     "1.10.3010.14"
+// ============================= Networking =============================
+//
+// Note: here we disregard any kind of good coding practice in favor of
+// extreme simplicity, that is:
+//
+// 1) We only rely on the kernel buffers for our I/O without any kind of
+//    user space buffering.
+// 2) We don't register any kind of event handler, from time to time a
+//    function gets called and we accept new connections. All the rest is
+//    handled via non-blocking I/O and manually polling clients to see if
+//    they have something new to share with us when reading is needed.
+//
+//=========================================================================
+//
+// Networking "stack" initialization
+//
+struct service {
+	char *descr;
+	int *socket;
+	int port;
+	int enabled;
+};
 
-// ============================= Include files ==========================
+struct service services[MODES_NET_SERVICES_NUM];
+
+void modesInitNet(void) {
+    int j;
+
+	struct service svc[MODES_NET_SERVICES_NUM] = {
+		{"Raw TCP output", &Modes.ros, Modes.net_output_raw_port, 1},
+		{"Raw TCP input", &Modes.ris, Modes.net_input_raw_port, 1},
+		{"Beast TCP output", &Modes.bos, Modes.net_output_beast_port, 1},
+		{"Beast TCP input", &Modes.bis, Modes.net_input_beast_port, 1},
+		{"HTTP server", &Modes.https, Modes.net_http_port, 1},
+		{"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port, 1}
+	};
+
+	memcpy(&services, &svc, sizeof(svc));//services = svc;
+
+    Modes.clients = NULL;
+
+#ifdef _WIN32
+    if ( (!Modes.wsaData.wVersion) 
+      && (!Modes.wsaData.wHighVersion) ) {
+      // Try to start the windows socket support
+      if (WSAStartup(MAKEWORD(2,1),&Modes.wsaData) != 0) 
+        {
+        fprintf(stderr, "WSAStartup returned Error\n");
+        }
+      }
+#endif
+
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		services[j].enabled = (services[j].port != 0);
+		if (services[j].enabled) {
+			int s = anetTcpServer(Modes.aneterr, services[j].port, Modes.net_bind_address);
+			if (s == -1) {
+				fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
+					services[j].port, services[j].descr, Modes.aneterr);
+				exit(1);
+			}
+			anetNonBlock(Modes.aneterr, s);
+			*services[j].socket = s;
+		} else {
+			if (Modes.debug & MODES_DEBUG_NET) printf("%s port is disabled\n", services[j].descr);
+		}
+    }
 
 #ifndef _WIN32
-    #include <stdio.h>
-    #include <string.h>
-    #include <stdlib.h>
-    #include <pthread.h>
-    #include <stdint.h>
-    #include <errno.h>
-    #include <unistd.h>
-    #include <math.h>
-    #include <sys/time.h>
-    #include <sys/timeb.h>
-    #include <signal.h>
-    #include <fcntl.h>
-    #include <ctype.h>
-    #include <sys/stat.h>
-    #include <sys/ioctl.h>
-    #include "rtl-sdr.h"
-    #include "anet.h"
-#else
-    #include "winstubs.h" //Put everything Windows specific in here
-    #include "rtl-sdr.h"
-    #include "anet.h"
+    signal(SIGPIPE, SIG_IGN);
 #endif
-
-// ============================= #defines ===============================
-//
-// If you have a valid coaa.h, these values will come from it. If not,
-// then you can enter your own values in the #else section here
-//
-#ifdef USER_LATITUDE
-    #define MODES_USER_LATITUDE_DFLT   (USER_LATITUDE)
-    #define MODES_USER_LONGITUDE_DFLT  (USER_LONGITUDE)
-#else
-    #define MODES_USER_LATITUDE_DFLT   (0.0)
-    #define MODES_USER_LONGITUDE_DFLT  (0.0)
-#endif
-
-#define MODES_DEFAULT_PPM          52
-#define MODES_DEFAULT_RATE         2000000
-#define MODES_DEFAULT_FREQ         1090000000
-#define MODES_DEFAULT_WIDTH        1000
-#define MODES_DEFAULT_HEIGHT       700
-#define MODES_ASYNC_BUF_NUMBER     16
-#define MODES_ASYNC_BUF_SIZE       (16*16384)                 // 256k
-#define MODES_ASYNC_BUF_SAMPLES    (MODES_ASYNC_BUF_SIZE / 2) // Each sample is 2 bytes
-#define MODES_AUTO_GAIN            -100                       // Use automatic gain
-#define MODES_MAX_GAIN             999999                     // Use max available gain
-#define MODES_MSG_SQUELCH_LEVEL    0x02FF                     // Average signal strength limit
-#define MODES_MSG_ENCODER_ERRS     3                          // Maximum number of encoding errors
-
-// When changing, change also fixBitErrors() and modesInitErrorTable() !!
-#define MODES_MAX_BITERRORS        2                          // Global max for fixable bit erros
-
-#define MODEAC_MSG_SAMPLES       (25 * 2)                     // include up to the SPI bit
-#define MODEAC_MSG_BYTES          2
-#define MODEAC_MSG_SQUELCH_LEVEL  0x07FF                      // Average signal strength limit
-#define MODEAC_MSG_FLAG          (1<<0)
-#define MODEAC_MSG_MODES_HIT     (1<<1)
-#define MODEAC_MSG_MODEA_HIT     (1<<2)
-#define MODEAC_MSG_MODEC_HIT     (1<<3)
-#define MODEAC_MSG_MODEA_ONLY    (1<<4)
-#define MODEAC_MSG_MODEC_OLD     (1<<5)
-
-#define MODES_PREAMBLE_US        8              // microseconds = bits
-#define MODES_PREAMBLE_SAMPLES  (MODES_PREAMBLE_US       * 2)
-#define MODES_PREAMBLE_SIZE     (MODES_PREAMBLE_SAMPLES  * sizeof(uint16_t))
-#define MODES_LONG_MSG_BYTES     14
-#define MODES_SHORT_MSG_BYTES    7
-#define MODES_LONG_MSG_BITS     (MODES_LONG_MSG_BYTES    * 8)
-#define MODES_SHORT_MSG_BITS    (MODES_SHORT_MSG_BYTES   * 8)
-#define MODES_LONG_MSG_SAMPLES  (MODES_LONG_MSG_BITS     * 2)
-#define MODES_SHORT_MSG_SAMPLES (MODES_SHORT_MSG_BITS    * 2)
-#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
-
-#define MODES_RAWOUT_BUF_SIZE   (1500)
-#define MODES_RAWOUT_BUF_FLUSH  (MODES_RAWOUT_BUF_SIZE - 200)
-#define MODES_RAWOUT_BUF_RATE   (1000)            // 1000 * 64mS = 1 Min approx
-
-#define MODES_ICAO_CACHE_LEN 1024 // Power of two required
-#define MODES_ICAO_CACHE_TTL 60   // Time to live of cached addresses
-#define MODES_UNIT_FEET 0
-#define MODES_UNIT_METERS 1
-
-#define MODES_USER_LATLON_VALID (1<<0)
-
-#define MODES_ACFLAGS_LATLON_VALID   (1<<0)  // Aircraft Lat/Lon is decoded
-#define MODES_ACFLAGS_ALTITUDE_VALID (1<<1)  // Aircraft altitude is known
-#define MODES_ACFLAGS_HEADING_VALID  (1<<2)  // Aircraft heading is known
-#define MODES_ACFLAGS_SPEED_VALID    (1<<3)  // Aircraft speed is known
-#define MODES_ACFLAGS_VERTRATE_VALID (1<<4)  // Aircraft vertical rate is known
-#define MODES_ACFLAGS_SQUAWK_VALID   (1<<5)  // Aircraft Mode A Squawk is known
-#define MODES_ACFLAGS_CALLSIGN_VALID (1<<6)  // Aircraft Callsign Identity
-#define MODES_ACFLAGS_EWSPEED_VALID  (1<<7)  // Aircraft East West Speed is known
-#define MODES_ACFLAGS_NSSPEED_VALID  (1<<8)  // Aircraft North South Speed is known
-#define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
-#define MODES_ACFLAGS_LLEVEN_VALID   (1<<10) // Aircraft Even Lot/Lon is known
-#define MODES_ACFLAGS_LLODD_VALID    (1<<11) // Aircraft Odd Lot/Lon is known
-#define MODES_ACFLAGS_AOG_VALID      (1<<12) // MODES_ACFLAGS_AOG is valid
-#define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known
-#define MODES_ACFLAGS_NSEWSPD_VALID  (1<<14) // Aircraft EW and NS Speed is known
-#define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
-
-#define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
-#define MODES_ACFLAGS_LLBOTH_VALID   (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
-#define MODES_ACFLAGS_AOG_GROUND     (MODES_ACFLAGS_AOG_VALID    | MODES_ACFLAGS_AOG)
-
-#define MODES_DEBUG_DEMOD (1<<0)
-#define MODES_DEBUG_DEMODERR (1<<1)
-#define MODES_DEBUG_BADCRC (1<<2)
-#define MODES_DEBUG_GOODCRC (1<<3)
-#define MODES_DEBUG_NOPREAMBLE (1<<4)
-#define MODES_DEBUG_NET (1<<5)
-#define MODES_DEBUG_JS (1<<6)
-
-// When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
-// at least greater than a given level for us to dump the signal.
-#define MODES_DEBUG_NOPREAMBLE_LEVEL 25
-
-#define MODES_INTERACTIVE_REFRESH_TIME 250      // Milliseconds
-#define MODES_INTERACTIVE_ROWS          22      // Rows on screen
-#define MODES_INTERACTIVE_DELETE_TTL   300      // Delete from the list after 300 seconds
-#define MODES_INTERACTIVE_DISPLAY_TTL   60      // Delete from display after 60 seconds
-
-#define MODES_NET_HEARTBEAT_RATE       900      // Each block is approx 65mS - default is > 1 min
-
-#define MODES_NET_SERVICES_NUM          6
-#define MODES_NET_INPUT_RAW_PORT    30001
-#define MODES_NET_OUTPUT_RAW_PORT   30002
-#define MODES_NET_OUTPUT_SBS_PORT   30003
-#define MODES_NET_INPUT_BEAST_PORT  30004
-#define MODES_NET_OUTPUT_BEAST_PORT 30005
-#define MODES_NET_HTTP_PORT          8080
-#define MODES_CLIENT_BUF_SIZE  1024
-#define MODES_NET_SNDBUF_SIZE (1024*64)
-#define MODES_NET_SNDBUF_MAX  (7)
-
-#ifndef HTMLPATH
-#define HTMLPATH   "./public_html"      // default path for gmap.html etc
-#endif
-
-#define MODES_NOTUSED(V) ((void) V)
-
-//======================== structure declarations =========================
-
-// Structure used to describe a networking client
-struct client {
-    struct client*  next;                // Pointer to next client
-    int    fd;                           // File descriptor
-    int    service;                      // TCP port the client is connected to
-    int    buflen;                       // Amount of data on buffer
-    char   buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
-};
-
-// Structure used to describe an aircraft in iteractive mode
-struct aircraft {
-    uint32_t      addr;           // ICAO address
-    char          flight[16];     // Flight number
-    unsigned char signalLevel[8]; // Last 8 Signal Amplitudes
-    int           altitude;       // Altitude
-    int           speed;          // Velocity
-    int           track;          // Angle of flight
-    int           vert_rate;      // Vertical rate.
-    time_t        seen;           // Time at which the last packet was received
-    time_t        seenLatLon;     // Time at which the last lat long was calculated
-    uint64_t      timestamp;      // Timestamp at which the last packet was received
-    uint64_t      timestampLatLon;// Timestamp at which the last lat long was calculated
-    long          messages;       // Number of Mode S messages received
-    int           modeA;          // Squawk
-    int           modeC;          // Altitude
-    long          modeAcount;     // Mode A Squawk hit Count
-    long          modeCcount;     // Mode C Altitude hit Count
-    int           modeACflags;    // Flags for mode A/C recognition
-
-    // Encoded latitude and longitude as extracted by odd and even CPR encoded messages
-    int           odd_cprlat;
-    int           odd_cprlon;
-    int           even_cprlat;
-    int           even_cprlon;
-    uint64_t      odd_cprtime;
-    uint64_t      even_cprtime;
-    double        lat, lon;       // Coordinated obtained from CPR encoded data
-    int           bFlags;         // Flags related to valid fields in this structure
-    struct aircraft *next;        // Next aircraft in our linked list
-};
-
-struct stDF {
-    struct stDF     *pNext;                      // Pointer to next item in the linked list
-    struct stDF     *pPrev;                      // Pointer to previous item in the linked list
-    struct aircraft *pAircraft;                  // Pointer to the Aircraft structure for this DF
-    time_t           seen;                       // Dos/UNIX Time at which the this packet was received
-    uint64_t         llTimestamp;                // Timestamp at which the this packet was received
-    uint32_t         addr;                       // Timestamp at which the this packet was received
-    unsigned char    msg[MODES_LONG_MSG_BYTES];  // the binary
-} tDF;
-
-// Program global state
-struct {                             // Internal state
-    pthread_t       reader_thread;
-
-    pthread_mutex_t data_mutex;      // Mutex to synchronize buffer access
-    pthread_cond_t  data_cond;       // Conditional variable associated
-    uint16_t       *pData          [MODES_ASYNC_BUF_NUMBER]; // Raw IQ sample buffers from RTL
-    struct timeb    stSystemTimeRTL[MODES_ASYNC_BUF_NUMBER]; // System time when RTL passed us this block
-    int             iDataIn;         // Fifo input pointer
-    int             iDataOut;        // Fifo output pointer
-    int             iDataReady;      // Fifo content count
-    int             iDataLost;       // Count of missed buffers
-
-    uint16_t       *pFileData;       // Raw IQ samples buffer (from a File)
-    uint16_t       *magnitude;       // Magnitude vector
-    uint64_t        timestampBlk;    // Timestamp of the start of the current block
-    struct timeb    stSystemTimeBlk; // System time when RTL passed us currently processing this block
-    int             fd;              // --ifile option file descriptor
-    uint32_t       *icao_cache;      // Recently seen ICAO addresses cache
-    uint16_t       *maglut;          // I/Q -> Magnitude lookup table
-    int             exit;            // Exit from the main loop when true
-
-    // RTLSDR
-    int           dev_index;
-    int           gain;
-    int           enable_agc;
-    rtlsdr_dev_t *dev;
-    int           freq;
-    int           ppm_error;
-
-    // Networking
-    char           aneterr[ANET_ERR_LEN];
-    struct client *clients;          // Our clients
-    int            sbsos;            // SBS output listening socket
-    int            ros;              // Raw output listening socket
-    int            ris;              // Raw input listening socket
-    int            bos;              // Beast output listening socket
-    int            bis;              // Beast input listening socket
-    int            https;            // HTTP listening socket
-    char          *rawOut;           // Buffer for building raw output data
-    int            rawOutUsed;       // How much of the buffer is currently used
-    char          *beastOut;         // Buffer for building beast output data
-    int            beastOutUsed;     // How much if the buffer is currently used
-#ifdef _WIN32
-    WSADATA        wsaData;          // Windows socket initialisation
-#endif
-
-    // Configuration
-    char *filename;                  // Input form file, --ifile option
-    int   phase_enhance;             // Enable phase enhancement if true
-    int   nfix_crc;                  // Number of crc bit error(s) to correct
-    int   check_crc;                 // Only display messages with good CRC
-    int   raw;                       // Raw output format
-    int   beast;                     // Beast binary format output
-    int   mode_ac;                   // Enable decoding of SSR Modes A & C
-    int   debug;                     // Debugging mode
-    int   net;                       // Enable networking
-    int   net_only;                  // Enable just networking
-    int   net_heartbeat_count;       // TCP heartbeat counter
-    int   net_heartbeat_rate;        // TCP heartbeat rate
-    int   net_output_sbs_port;       // SBS output TCP port
-    int   net_output_raw_size;       // Minimum Size of the output raw data
-    int   net_output_raw_rate;       // Rate (in 64mS increments) of output raw data
-    int   net_output_raw_rate_count; // Rate (in 64mS increments) of output raw data
-    int   net_output_raw_port;       // Raw output TCP port
-    int   net_input_raw_port;        // Raw input TCP port
-    int   net_output_beast_port;     // Beast output TCP port
-    int   net_input_beast_port;      // Beast input TCP port
-    char  *net_bind_address;         // Bind address
-    int   net_http_port;             // HTTP port
-    int   net_sndbuf_size;           // TCP output buffer size (64Kb * 2^n)
-    int   quiet;                     // Suppress stdout
-    int   interactive;               // Interactive mode
-    int   interactive_rows;          // Interactive mode: max number of rows
-    int   interactive_display_ttl;   // Interactive mode: TTL display
-    int   interactive_delete_ttl;    // Interactive mode: TTL before deletion
-    int   stats;                     // Print stats at exit in --ifile mode
-    int   onlyaddr;                  // Print only ICAO addresses
-    int   metric;                    // Use metric units
-    int   mlat;                      // Use Beast ascii format for raw data output, i.e. @...; iso *...;
-    int   interactive_rtl1090;       // flight table in interactive mode is formatted like RTL1090
-
-    // User details
-    double fUserLat;                // Users receiver/antenna lat/lon needed for initial surface location
-    double fUserLon;                // Users receiver/antenna lat/lon needed for initial surface location
-    int    bUserFlags;              // Flags relating to the user details
-
-    // Interactive mode
-    struct aircraft *aircrafts;
-    uint64_t         interactive_last_update; // Last screen update in milliseconds
-    time_t           last_cleanup_time;       // Last cleanup time in seconds
-
-    // DF List mode
-    int             bEnableDFLogging; // Set to enable DF Logging
-    pthread_mutex_t pDF_mutex;        // Mutex to synchronize pDF access
-    struct stDF    *pDF;              // Pointer to DF list
-
-    // Statistics
-    unsigned int stat_valid_preamble;
-    unsigned int stat_demodulated0;
-    unsigned int stat_demodulated1;
-    unsigned int stat_demodulated2;
-    unsigned int stat_demodulated3;
-    unsigned int stat_goodcrc;
-    unsigned int stat_badcrc;
-    unsigned int stat_fixed;
-
-    // Histogram of fixed bit errors: index 0 for single bit erros,
-    // index 1 for double bit errors etc.
-    unsigned int stat_bit_fix[MODES_MAX_BITERRORS];
-
-    unsigned int stat_http_requests;
-    unsigned int stat_sbs_connections;
-    unsigned int stat_raw_connections;
-    unsigned int stat_beast_connections;
-    unsigned int stat_out_of_phase;
-    unsigned int stat_ph_demodulated0;
-    unsigned int stat_ph_demodulated1;
-    unsigned int stat_ph_demodulated2;
-    unsigned int stat_ph_demodulated3;
-    unsigned int stat_ph_goodcrc;
-    unsigned int stat_ph_badcrc;
-    unsigned int stat_ph_fixed;
-    // Histogram of fixed bit errors: index 0 for single bit erros,
-    // index 1 for double bit errors etc.
-    unsigned int stat_ph_bit_fix[MODES_MAX_BITERRORS];
-
-    unsigned int stat_DF_Len_Corrected;
-    unsigned int stat_DF_Type_Corrected;
-    unsigned int stat_ModeAC;
-
-    unsigned int stat_blocks_processed;
-    unsigned int stat_blocks_dropped;
-} Modes;
-
-// The struct we use to store information about a decoded message.
-struct modesMessage {
-    // Generic fields
-    unsigned char msg[MODES_LONG_MSG_BYTES];      // Binary message.
-    int           msgbits;                        // Number of bits in message 
-    int           msgtype;                        // Downlink format #
-    int           crcok;                          // True if CRC was valid
-    uint32_t      crc;                            // Message CRC
-    int           correctedbits;                  // No. of bits corrected 
-    char          corrected[MODES_MAX_BITERRORS]; // corrected bit positions
-    uint32_t      addr;                           // ICAO Address from bytes 1 2 and 3
-    int           phase_corrected;                // True if phase correction was applied
-    uint64_t      timestampMsg;                   // Timestamp of the message
-    int           remote;                         // If set this message is from a remote station
-    unsigned char signalLevel;                    // Signal Amplitude
-
-    // DF 11
-    int  ca;                    // Responder capabilities
-    int  iid;
-
-    // DF 17, DF 18
-    int    metype;              // Extended squitter message type.
-    int    mesub;               // Extended squitter message subtype.
-    int    heading;             // Reported by aircraft, or computed from from EW and NS velocity
-    int    raw_latitude;        // Non decoded latitude.
-    int    raw_longitude;       // Non decoded longitude.
-    double fLat;                // Coordinates obtained from CPR encoded data if/when decoded
-    double fLon;                // Coordinates obtained from CPR encoded data if/when decoded
-    char   flight[16];          // 8 chars flight number.
-    int    ew_velocity;         // E/W velocity.
-    int    ns_velocity;         // N/S velocity.
-    int    vert_rate;           // Vertical rate.
-    int    velocity;            // Reported by aircraft, or computed from from EW and NS velocity
-
-    // DF4, DF5, DF20, DF21
-    int  fs;                    // Flight status for DF4,5,20,21
-    int  modeA;                 // 13 bits identity (Squawk).
-
-    // Fields used by multiple message types.
-    int  altitude;
-    int  unit; 
-    int  bFlags;                // Flags related to fields in this structure
-};
-
-// ======================== function declarations =========================
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-//
-// Functions exported from mode_ac.c
-//
-int  detectModeA       (uint16_t *m, struct modesMessage *mm);
-void decodeModeAMessage(struct modesMessage *mm, int ModeA);
-int  ModeAToModeC      (unsigned int ModeA);
-
-//
-// Functions exported from mode_s.c
-//
-void detectModeS        (uint16_t *m, uint32_t mlen);
-void decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
-void displayModesMessage(struct modesMessage *mm);
-void useModesMessage    (struct modesMessage *mm);
-void computeMagnitudeVector(uint16_t *pData);
-int  decodeCPR          (struct aircraft *a, int fflag, int surface);
-int  decodeCPRrelative  (struct aircraft *a, int fflag, int surface);
-void modesInitErrorInfo ();
-//
-// Functions exported from interactive.c
-//
-struct aircraft* interactiveReceiveData(struct modesMessage *mm);
-void  interactiveShowData(void);
-void  interactiveRemoveStaleAircrafts(void);
-int   decodeBinMessage   (struct client *c, char *p);
-struct aircraft *interactiveFindAircraft(uint32_t addr);
-struct stDF     *interactiveFindDF      (uint32_t addr);
-
-//
-// Functions exported from net_io.c
-//
-void modesInitNet         (void);
-void modesReadFromClients (void);
-void modesSendAllClients  (int service, void *msg, int len);
-void modesQueueOutput     (struct modesMessage *mm);
-void modesReadFromClient(struct client *c, char *sep, int(*handler)(struct client *, char *));
-
-#ifdef __cplusplus
 }
-#endif
+//
+//=========================================================================
+//
+// This function gets called from time to time when the decoding thread is
+// awakened by new data arriving. This usually happens a few times every second
+//
+struct client * modesAcceptClients(void) {
+    int fd, port;
+    unsigned int j;
+    struct client *c;
 
-#endif // __DUMP1090_H
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if (services[j].enabled) {
+			fd = anetTcpAccept(Modes.aneterr, *services[j].socket, NULL, &port);
+			if (fd == -1) continue;
+
+			anetNonBlock(Modes.aneterr, fd);
+			c = (struct client *) malloc(sizeof(*c));
+			c->service    = *services[j].socket;
+			c->next       = Modes.clients;
+			c->fd         = fd;
+			c->buflen     = 0;
+			Modes.clients = c;
+			anetSetSendBuffer(Modes.aneterr,fd, (MODES_NET_SNDBUF_SIZE << Modes.net_sndbuf_size));
+
+			if (*services[j].socket == Modes.sbsos) Modes.stat_sbs_connections++;
+			if (*services[j].socket == Modes.ros)   Modes.stat_raw_connections++;
+			if (*services[j].socket == Modes.bos)   Modes.stat_beast_connections++;
+
+			j--; // Try again with the same listening port
+
+			if (Modes.debug & MODES_DEBUG_NET)
+				printf("Created new client %d\n", fd);
+		}
+    }
+    return Modes.clients;
+}
+//
+//=========================================================================
+//
+// On error free the client, collect the structure, adjust maxfd if needed.
+//
+void modesFreeClient(struct client *c) {
+
+    // Unhook this client from the linked list of clients
+    struct client *p = Modes.clients;
+    if (p) {
+        if (p == c) {
+            Modes.clients = c->next;
+        } else {
+            while ((p) && (p->next != c)) {
+                p = p->next;
+            }
+            if (p) {
+                p->next = c->next;
+            }
+        }
+    }
+
+    free(c);
+}
+//
+//=========================================================================
+//
+// Close the client connection and mark it as closed
+//
+void modesCloseClient(struct client *c) {
+	close(c->fd);
+    if (c->service == Modes.sbsos) {
+        if (Modes.stat_sbs_connections) Modes.stat_sbs_connections--;
+    } else if (c->service == Modes.ros) {
+        if (Modes.stat_raw_connections) Modes.stat_raw_connections--;
+    } else if (c->service == Modes.bos) {
+        if (Modes.stat_beast_connections) Modes.stat_beast_connections--;
+    }
+
+    if (Modes.debug & MODES_DEBUG_NET)
+        printf("Closing client %d\n", c->fd);
+
+    c->fd = -1;
+}
+//
+//=========================================================================
+//
+// Send the specified message to all clients listening for a given service
+//
+void modesSendAllClients(int service, void *msg, int len) {
+    struct client *c = Modes.clients;
+
+    while (c) {
+        // Read next before servicing client incase the service routine deletes the client! 
+        struct client *next = c->next;
+
+        if (c->fd != -1) {
+            if (c->service == service) {
+#ifndef _WIN32
+                int nwritten = write(c->fd, msg, len);
+#else
+                int nwritten = send(c->fd, msg, len, 0 );
+#endif
+                if (nwritten != len) {
+                    modesCloseClient(c);
+                }
+            }
+        } else {
+            modesFreeClient(c);
+        }
+        c = next;
+    }
+}
+//
+//=========================================================================
+//
+// Write raw output in Beast Binary format with Timestamp to TCP clients
+//
+void modesSendBeastOutput(struct modesMessage *mm) {
+    char *p = &Modes.beastOut[Modes.beastOutUsed];
+    int  msgLen = mm->msgbits / 8;
+    char * pTimeStamp;
+    char ch;
+    int  j;
+    int  iOutLen = msgLen + 9; // Escape, msgtype, timestamp, sigLevel, msg
+
+    *p++ = 0x1a;
+    if      (msgLen == MODES_SHORT_MSG_BYTES)
+      {*p++ = '2';}
+    else if (msgLen == MODES_LONG_MSG_BYTES)
+      {*p++ = '3';}
+    else if (msgLen == MODEAC_MSG_BYTES)
+      {*p++ = '1';}
+    else
+      {return;}
+
+    pTimeStamp = (char *) &mm->timestampMsg;
+    for (j = 5; j >= 0; j--) {
+        *p++ = (ch = pTimeStamp[j]);
+        if (0x1A == ch) {*p++ = ch; iOutLen++;}
+    }
+
+    *p++ = (ch = mm->signalLevel);
+    if (0x1A == ch) {*p++ = ch; iOutLen++;}
+
+    for (j = 0; j < msgLen; j++) {
+        *p++ = (ch = mm->msg[j]);
+        if (0x1A == ch) {*p++ = ch; iOutLen++;} 
+    }
+
+    Modes.beastOutUsed +=  iOutLen;
+    if (Modes.beastOutUsed >= Modes.net_output_raw_size)
+      {
+      modesSendAllClients(Modes.bos, Modes.beastOut, Modes.beastOutUsed);
+      Modes.beastOutUsed = 0;
+      Modes.net_output_raw_rate_count = 0;
+      }
+}
+//
+//=========================================================================
+//
+// Write raw output to TCP clients
+//
+void modesSendRawOutput(struct modesMessage *mm) {
+    char *p = &Modes.rawOut[Modes.rawOutUsed];
+    int  msgLen = mm->msgbits / 8;
+    int j;
+    unsigned char * pTimeStamp;
+
+    if (Modes.mlat && mm->timestampMsg) {
+        *p++ = '@';
+        pTimeStamp = (unsigned char *) &mm->timestampMsg;
+        for (j = 5; j >= 0; j--) {
+            sprintf(p, "%02X", pTimeStamp[j]);
+            p += 2;
+        }
+        Modes.rawOutUsed += 12; // additional 12 characters for timestamp
+    } else
+        *p++ = '*';
+
+    for (j = 0; j < msgLen; j++) {
+        sprintf(p, "%02X", mm->msg[j]);
+        p += 2;
+    }
+
+    *p++ = ';';
+    *p++ = '\n';
+
+    Modes.rawOutUsed += ((msgLen*2) + 3);
+    if (Modes.rawOutUsed >= Modes.net_output_raw_size)
+      {
+      modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
+      Modes.rawOutUsed = 0;
+      Modes.net_output_raw_rate_count = 0;
+      }
+}
+//
+//=========================================================================
+//
+// Write SBS output to TCP clients
+// The message structure mm->bFlags tells us what has been updated by this message
+//
+void modesSendSBSOutput(struct modesMessage *mm) {
+    char msg[256], *p = msg;
+    uint32_t     offset;
+    struct timeb epocTime_receive, epocTime_now;
+    struct tm    stTime_receive, stTime_now;
+    int          msgType;
+
+    //
+    // SBS BS style output checked against the following reference
+    // http://www.homepages.mcb.net/bones/SBS/Article/Barebones42_Socket_Data.htm - seems comprehensive
+    //
+
+    // Decide on the basic SBS Message Type
+    if        ((mm->msgtype ==  4) || (mm->msgtype == 20)) {
+        msgType = 5;
+    } else if ((mm->msgtype ==  5) || (mm->msgtype == 21)) {
+        msgType = 6;
+    } else if ((mm->msgtype ==  0) || (mm->msgtype == 16)) {
+        msgType = 7;
+    } else if  (mm->msgtype == 11) {
+        msgType = 8;
+    } else if ((mm->msgtype != 17) && (mm->msgtype != 18)) {
+        return;
+    } else if ((mm->metype >= 1) && (mm->metype <=  4)) {
+        msgType = 1;
+    } else if ((mm->metype >= 5) && (mm->metype <=  8)) {
+        if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID)
+            {msgType = 2;}
+        else
+            {msgType = 7;}
+    } else if ((mm->metype >= 9) && (mm->metype <= 18)) {
+        if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID)
+            {msgType = 3;}
+        else
+            {msgType = 7;}
+    } else if (mm->metype !=  19) {
+        return;
+    } else if ((mm->mesub == 1) || (mm->mesub == 2)) {
+        msgType = 4;
+    } else {
+        return;
+    }
+
+    // Fields 1 to 6 : SBS message type and ICAO address of the aircraft and some other stuff
+    p += sprintf(p, "MSG,%d,111,11111,%06X,111111,", msgType, mm->addr); 
+
+    // Find current system time
+    ftime(&epocTime_now);                                         // get the current system time & date
+    stTime_now = *localtime(&epocTime_now.time);
+
+    // Find message reception time
+    if (mm->timestampMsg && !mm->remote) {                        // Make sure the records' timestamp is valid before using it
+        epocTime_receive = Modes.stSystemTimeBlk;                 // This is the time of the start of the Block we're processing
+        offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
+        offset   = offset / 12000;                                // convert to milliseconds
+        epocTime_receive.millitm += offset;                       // add on the offset time to the Block start time
+        if (epocTime_receive.millitm > 999) {                     // if we've caused an overflow into the next second...
+            epocTime_receive.millitm -= 1000;
+            epocTime_receive.time ++;                             //    ..correct the overflow
+        }
+        stTime_receive = *localtime(&epocTime_receive.time);
+    } else {
+        epocTime_receive = epocTime_now;                          // We don't have a usable reception time; use the current system time
+        stTime_receive = stTime_now;
+    }
+
+    // Fields 7 & 8 are the message reception time and date
+    p += sprintf(p, "%04d/%02d/%02d,", (stTime_receive.tm_year+1900),(stTime_receive.tm_mon+1), stTime_receive.tm_mday);
+    p += sprintf(p, "%02d:%02d:%02d.%03d,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, epocTime_receive.millitm);
+
+    // Fields 9 & 10 are the current time and date
+    p += sprintf(p, "%04d/%02d/%02d,", (stTime_now.tm_year+1900),(stTime_now.tm_mon+1), stTime_now.tm_mday);
+    p += sprintf(p, "%02d:%02d:%02d.%03d", stTime_now.tm_hour, stTime_now.tm_min, stTime_now.tm_sec, epocTime_now.millitm);
+
+    // Field 11 is the callsign (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_CALLSIGN_VALID) {p += sprintf(p, ",%s", mm->flight);}
+    else                                           {p += sprintf(p, ",");}
+
+    // Field 12 is the altitude (if we have it) - force to zero if we're on the ground
+    if ((mm->bFlags & MODES_ACFLAGS_AOG_GROUND) == MODES_ACFLAGS_AOG_GROUND) {
+        p += sprintf(p, ",0");
+    } else if (mm->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
+        p += sprintf(p, ",%d", mm->altitude);
+    } else {
+        p += sprintf(p, ",");
+    }
+
+    // Field 13 is the ground Speed (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) {
+        p += sprintf(p, ",%d", mm->velocity);
+    } else {
+        p += sprintf(p, ","); 
+    }
+
+    // Field 14 is the ground Heading (if we have it)       
+    if (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) {
+        p += sprintf(p, ",%d", mm->heading);
+    } else {
+        p += sprintf(p, ",");
+    }
+
+    // Fields 15 and 16 are the Lat/Lon (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {p += sprintf(p, ",%1.5f,%1.5f", mm->fLat, mm->fLon);}
+    else                                         {p += sprintf(p, ",,");}
+
+    // Field 17 is the VerticalRate (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) {p += sprintf(p, ",%d", mm->vert_rate);}
+    else                                           {p += sprintf(p, ",");}
+
+    // Field 18 is  the Squawk (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {p += sprintf(p, ",%x", mm->modeA);}
+    else                                         {p += sprintf(p, ",");}
+
+    // Field 19 is the Squawk Changing Alert flag (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_FS_VALID) {
+        if ((mm->fs >= 2) && (mm->fs <= 4)) {
+            p += sprintf(p, ",-1");
+        } else {
+            p += sprintf(p, ",0");
+        }
+    } else {
+        p += sprintf(p, ",");
+    }
+
+    // Field 20 is the Squawk Emergency flag (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
+        if ((mm->modeA == 0x7500) || (mm->modeA == 0x7600) || (mm->modeA == 0x7700)) {
+            p += sprintf(p, ",-1");
+        } else {
+            p += sprintf(p, ",0");
+        }
+    } else {
+        p += sprintf(p, ",");
+    }
+
+    // Field 21 is the Squawk Ident flag (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_FS_VALID) {
+        if ((mm->fs >= 4) && (mm->fs <= 5)) {
+            p += sprintf(p, ",-1");
+        } else {
+            p += sprintf(p, ",0");
+        }
+    } else {
+        p += sprintf(p, ",");
+    }
+
+    // Field 22 is the OnTheGround flag (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_AOG_VALID) {
+        if (mm->bFlags & MODES_ACFLAGS_AOG) {
+            p += sprintf(p, ",-1");
+        } else {
+            p += sprintf(p, ",0");
+        }
+    } else {
+        p += sprintf(p, ",");
+    }
+
+    p += sprintf(p, "\r\n");
+    modesSendAllClients(Modes.sbsos, msg, p-msg);
+}
+//
+//=========================================================================
+//
+void modesQueueOutput(struct modesMessage *mm) {
+    if (Modes.stat_sbs_connections)   {modesSendSBSOutput(mm);}
+    if (Modes.stat_beast_connections) {modesSendBeastOutput(mm);}
+    if (Modes.stat_raw_connections)   {modesSendRawOutput(mm);}
+}
+//
+//=========================================================================
+//
+// This function decodes a Beast binary format message
+//
+// The message is passed to the higher level layers, so it feeds
+// the selected screen output, the network output and so forth.
+//
+// If the message looks invalid it is silently discarded.
+//
+// The function always returns 0 (success) to the caller as there is no
+// case where we want broken messages here to close the client connection.
+//
+int decodeBinMessage(struct client *c, char *p) {
+    int msgLen = 0;
+    int  j;
+    char ch;
+    char * ptr;
+    unsigned char msg[MODES_LONG_MSG_BYTES];
+    struct modesMessage mm;
+    MODES_NOTUSED(c);
+    memset(&mm, 0, sizeof(mm));
+
+    ch = *p++; /// Get the message type
+    if (0x1A == ch) {p++;} 
+
+    if       ((ch == '1') && (Modes.mode_ac)) { // skip ModeA/C unless user enables --modes-ac
+        msgLen = MODEAC_MSG_BYTES;
+    } else if (ch == '2') {
+        msgLen = MODES_SHORT_MSG_BYTES;
+    } else if (ch == '3') {
+        msgLen = MODES_LONG_MSG_BYTES;
+    }
+
+    if (msgLen) {
+        // Mark messages received over the internet as remote so that we don't try to
+        // pass them off as being received by this instance when forwarding them
+        mm.remote      =    1;
+
+        ptr = (char*) &mm.timestampMsg;
+        for (j = 0; j < 6; j++) { // Grab the timestamp (big endian format)
+            ptr[5-j] = ch = *p++; 
+            if (0x1A == ch) {p++;}
+        }
+
+        mm.signalLevel = ch = *p++;  // Grab the signal level
+        if (0x1A == ch) {p++;}
+
+        for (j = 0; j < msgLen; j++) { // and the data
+            msg[j] = ch = *p++;
+            if (0x1A == ch) {p++;}
+        }
+
+        if (msgLen == MODEAC_MSG_BYTES) { // ModeA or ModeC
+            decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));
+        } else {
+            decodeModesMessage(&mm, msg);
+        }
+
+        useModesMessage(&mm);
+    }
+    return (0);
+}
+//
+//=========================================================================
+//
+// Turn an hex digit into its 4 bit decimal value.
+// Returns -1 if the digit is not in the 0-F range.
+//
+int hexDigitVal(int c) {
+    c = tolower(c);
+    if (c >= '0' && c <= '9') return c-'0';
+    else if (c >= 'a' && c <= 'f') return c-'a'+10;
+    else return -1;
+}
+//
+//=========================================================================
+//
+// This function decodes a string representing message in raw hex format
+// like: *8D4B969699155600E87406F5B69F; The string is null-terminated.
+// 
+// The message is passed to the higher level layers, so it feeds
+// the selected screen output, the network output and so forth.
+// 
+// If the message looks invalid it is silently discarded.
+//
+// The function always returns 0 (success) to the caller as there is no 
+// case where we want broken messages here to close the client connection.
+//
+int decodeHexMessage(struct client *c, char *hex) {
+    int l = strlen(hex), j;
+    unsigned char msg[MODES_LONG_MSG_BYTES];
+    struct modesMessage mm;
+    MODES_NOTUSED(c);
+    memset(&mm, 0, sizeof(mm));
+
+    // Mark messages received over the internet as remote so that we don't try to
+    // pass them off as being received by this instance when forwarding them
+    mm.remote      =    1;
+    mm.signalLevel = 0xFF;
+
+    // Remove spaces on the left and on the right
+    while(l && isspace(hex[l-1])) {
+        hex[l-1] = '\0'; l--;
+    }
+    while(isspace(*hex)) {
+        hex++; l--;
+    }
+
+    // Turn the message into binary.
+    // Accept *-AVR raw @-AVR/BEAST timeS+raw %-AVR timeS+raw (CRC good) <-BEAST timeS+sigL+raw
+    // and some AVR records that we can understand
+    if (hex[l-1] != ';') {return (0);} // not complete - abort
+
+    switch(hex[0]) {
+        case '<': {
+            mm.signalLevel = (hexDigitVal(hex[13])<<4) | hexDigitVal(hex[14]);
+            hex += 15; l -= 16; // Skip <, timestamp and siglevel, and ;
+            break;}
+
+        case '@':     // No CRC check
+        case '%': {   // CRC is OK
+            hex += 13; l -= 14; // Skip @,%, and timestamp, and ;
+            break;}
+
+        case '*':
+        case ':': {
+            hex++; l-=2; // Skip * and ;
+            break;}
+
+        default: {
+            return (0); // We don't know what this is, so abort
+            break;}
+    }
+
+    if ( (l != (MODEAC_MSG_BYTES      * 2)) 
+      && (l != (MODES_SHORT_MSG_BYTES * 2)) 
+      && (l != (MODES_LONG_MSG_BYTES  * 2)) )
+        {return (0);} // Too short or long message... broken
+
+    if ( (0 == Modes.mode_ac) 
+      && (l == (MODEAC_MSG_BYTES * 2)) ) 
+        {return (0);} // Right length for ModeA/C, but not enabled
+
+    for (j = 0; j < l; j += 2) {
+        int high = hexDigitVal(hex[j]);
+        int low  = hexDigitVal(hex[j+1]);
+
+        if (high == -1 || low == -1) return 0;
+        msg[j/2] = (high << 4) | low;
+    }
+
+    if (l == (MODEAC_MSG_BYTES * 2)) {  // ModeA or ModeC
+        decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));
+    } else {       // Assume ModeS
+        decodeModesMessage(&mm, msg);
+    }
+
+    useModesMessage(&mm);
+    return (0);
+}
+//
+//=========================================================================
+//
+// Return a description of planes in json. No metric conversion
+//
+char *aircraftsToJson(int *len) {
+    time_t now = time(NULL);
+    struct aircraft *a = Modes.aircrafts;
+    int buflen = 1024; // The initial buffer is incremented as needed
+    char *buf = (char *) malloc(buflen), *p = buf;
+    int l;
+
+    l = snprintf(p,buflen,"[\n");
+    p += l; buflen -= l;
+    while(a) {
+        int position = 0;
+        int track = 0;
+
+        if (a->modeACflags & MODEAC_MSG_FLAG) { // skip any fudged ICAO records Mode A/C
+            a = a->next;
+            continue;
+        }
+
+        if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+            position = 1;
+        }
+        
+        if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) {
+            track = 1;
+        }
+
+        unsigned char * pSig       = a->signalLevel;
+        unsigned int signalAverage = (pSig[0] + pSig[1] + pSig[2] + pSig[3] +
+                                      pSig[4] + pSig[5] + pSig[6] + pSig[7] + 3) >> 3;
+
+        // No metric conversion
+        l = snprintf(p,buflen,
+            "{\"hex\":\"%06x\", \"squawk\":\"%04x\", \"flight\":\"%s\", \"lat\":%f, "
+            "\"lon\":%f, \"validposition\":%d, \"altitude\":%d,  \"vert_rate\":%d,\"track\":%d, \"validtrack\":%d,"
+            "\"speed\":%d, \"messages\":%ld, \"seen\":%d, \"signal\":%u, \"mtime\":%lu, \"postime\":%lu},\n",
+            a->addr, a->modeA, a->flight, a->lat, a->lon, position, a->altitude, a->vert_rate, a->track, track,
+            a->speed, a->messages, (int)(now - a->seen), signalAverage, a->seen, a->seenLatLon);
+        p += l; buflen -= l;
+        
+        //Resize if needed
+        if (buflen < 256) {
+            int used = p-buf;
+            buflen += 1024; // Our increment.
+            buf = (char *) realloc(buf,used+buflen);
+            p = buf+used;
+        }
+        
+        a = a->next;
+    }
+
+    //Remove the final comma if any, and closes the json array.
+    if (*(p-2) == ',') {
+        *(p-2) = '\n';
+        p--;
+        buflen++;
+    }
+
+    l = snprintf(p,buflen,"]\n");
+    p += l; buflen -= l;
+
+    *len = p-buf;
+    return buf;
+}
+//
+//=========================================================================
+//
+#define MODES_CONTENT_TYPE_HTML "text/html;charset=utf-8"
+#define MODES_CONTENT_TYPE_CSS  "text/css;charset=utf-8"
+#define MODES_CONTENT_TYPE_JSON "application/json;charset=utf-8"
+#define MODES_CONTENT_TYPE_JS   "application/javascript;charset=utf-8"
+//
+// Get an HTTP request header and write the response to the client.
+// gain here we assume that the socket buffer is enough without doing
+// any kind of userspace buffering.
+//
+// Returns 1 on error to signal the caller the client connection should
+// be closed.
+//
+int handleHTTPRequest(struct client *c, char *p) {
+    char hdr[512];
+    int clen, hdrlen;
+    int httpver, keepalive;
+    int statuscode = 500;
+    char *url, *content;
+    char ctype[48];
+    char getFile[1024];
+    char *ext;
+
+    if (Modes.debug & MODES_DEBUG_NET)
+        printf("\nHTTP request: %s\n", c->buf);
+
+    // Minimally parse the request.
+    httpver = (strstr(p, "HTTP/1.1") != NULL) ? 11 : 10;
+    if (httpver == 10) {
+        // HTTP 1.0 defaults to close, unless otherwise specified.
+        //keepalive = strstr(p, "Connection: keep-alive") != NULL;
+    } else if (httpver == 11) {
+        // HTTP 1.1 defaults to keep-alive, unless close is specified.
+        //keepalive = strstr(p, "Connection: close") == NULL;
+    }
+    keepalive = 0;
+
+    // Identify he URL.
+    p = strchr(p,' ');
+    if (!p) return 1; // There should be the method and a space
+    url = ++p;        // Now this should point to the requested URL
+    p = strchr(p, ' ');
+    if (!p) return 1; // There should be a space before HTTP/
+    *p = '\0';
+
+    if (Modes.debug & MODES_DEBUG_NET) {
+        printf("\nHTTP keep alive: %d\n", keepalive);
+        printf("HTTP requested URL: %s\n\n", url);
+    }
+    
+    if (strlen(url) < 2) {
+        snprintf(getFile, sizeof getFile, "%s/gmap.html", HTMLPATH); // Default file
+    } else {
+        snprintf(getFile, sizeof getFile, "%s/%s", HTMLPATH, url);
+    }
+
+    // Select the content to send, we have just two so far:
+    // "/" -> Our google map application.
+    // "/data.json" -> Our ajax request to update planes.
+    if (strstr(url, "/data.json")) {
+        statuscode = 200;
+        content = aircraftsToJson(&clen);
+        //snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
+    } else {
+        struct stat sbuf;
+        int fd = -1;
+       // char *rp, *hrp;
+ 	char rp[PATH_MAX], hrp[PATH_MAX];
+ 
+         if (!realpath(getFile, rp))
+             rp[0] = 0;
+         if (!realpath(HTMLPATH, hrp))
+             strcpy(hrp, HTMLPATH);
+
+//        rp = realpath(getFile, NULL);
+//        hrp = realpath(HTMLPATH, NULL);
+//        hrp = (hrp ? hrp : HTMLPATH);
+        clen = -1;
+        content = strdup("Server error occured");
+//        if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
+ 	if (!strncmp(hrp, rp, strlen(hrp))) {
+            if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
+                content = (char *) realloc(content, sbuf.st_size);
+                if (read(fd, content, sbuf.st_size) != -1) {
+                    clen = sbuf.st_size;
+                    statuscode = 200;
+                }
+            }
+        } else {
+            errno = ENOENT;
+        }
+
+        if (clen < 0) {
+            content = realloc(content, 128);
+            clen = snprintf(content, 128,"Error opening HTML file: %s", strerror(errno));
+            statuscode = 404;
+        }
+        
+        if (fd != -1) {
+            close(fd);
+        }
+    }
+
+    // Get file extension and content type
+    snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_HTML); // Default content type
+    ext = strrchr(getFile, '.');
+
+    //if (strlen(ext) > 0) {
+      if (ext) {
+        if (strstr(ext, ".json")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
+        } else if (strstr(ext, ".css")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_CSS);
+        } else if (strstr(ext, ".js")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JS);
+        }
+    }
+
+    // Create the header and send the reply
+    hdrlen = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 %d \r\n"
+        "Server: Dump1090\r\n"
+        "Content-Type: %s\r\n"
+        "Connection: %s\r\n"
+        "Content-Length: %d\r\n"
+        "Cache-Control: no-cache, must-revalidate\r\n"
+        "Expires: Sat, 26 Jul 1997 05:00:00 GMT\r\n"
+        "\r\n",
+        statuscode,
+        ctype,
+        keepalive ? "keep-alive" : "close",
+        clen);
+
+    if (Modes.debug & MODES_DEBUG_NET) {
+        printf("HTTP Reply header:\n%s", hdr);
+    }
+
+    // Send header and content.
+#ifndef _WIN32
+    if ( (write(c->fd, hdr, hdrlen) != hdrlen) 
+      || (write(c->fd, content, clen) != clen) ) {
+#else
+    if ( (send(c->fd, hdr, hdrlen, 0) != hdrlen) 
+      || (send(c->fd, content, clen, 0) != clen) ) {
+#endif
+        free(content);
+        return 1;
+    }
+    free(content);
+    Modes.stat_http_requests++;
+    return !keepalive;
+}
+//
+//=========================================================================
+//
+// This function polls the clients using read() in order to receive new
+// messages from the net.
+//
+// The message is supposed to be separated from the next message by the
+// separator 'sep', which is a null-terminated C string.
+//
+// Every full message received is decoded and passed to the higher layers
+// calling the function's 'handler'.
+//
+// The handler returns 0 on success, or 1 to signal this function we should
+// close the connection with the client in case of non-recoverable errors.
+//
+void modesReadFromClient(struct client *c, char *sep,
+                         int(*handler)(struct client *, char *)) {
+    int left;
+    int nread;
+    int fullmsg;
+    int bContinue = 1;
+    char *s, *e, *p;
+
+    while(bContinue) {
+
+        fullmsg = 0;
+        left = MODES_CLIENT_BUF_SIZE - c->buflen;
+        // If our buffer is full discard it, this is some badly formatted shit
+        if (left <= 0) {
+            c->buflen = 0;
+            left = MODES_CLIENT_BUF_SIZE;
+            // If there is garbage, read more to discard it ASAP
+        }
+#ifndef _WIN32
+        nread = read(c->fd, c->buf+c->buflen, left);
+#else
+        nread = recv(c->fd, c->buf+c->buflen, left, 0);
+        if (nread < 0) {errno = WSAGetLastError();}
+#endif
+        if (nread == 0) {
+			modesCloseClient(c);
+			return;
+		}
+
+        // If we didn't get all the data we asked for, then return once we've processed what we did get.
+        if (nread != left) {
+            bContinue = 0;
+        }
+#ifndef _WIN32
+        if ( (nread < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || nread == 0 ) { // Error, or end of file
+#else
+        if ( (nread < 0) && (errno != EWOULDBLOCK)) { // Error, or end of file
+#endif
+            modesCloseClient(c);
+            return;
+        }
+        if (nread <= 0) {
+            break; // Serve next client
+        }
+        c->buflen += nread;
+
+        // Always null-term so we are free to use strstr() (it won't affect binary case)
+        c->buf[c->buflen] = '\0';
+
+        e = s = c->buf;                                // Start with the start of buffer, first message
+
+        if (c->service == Modes.bis) {
+            // This is the Beast Binary scanning case.
+            // If there is a complete message still in the buffer, there must be the separator 'sep'
+            // in the buffer, note that we full-scan the buffer at every read for simplicity.
+
+            left = c->buflen;                                  // Length of valid search for memchr()
+            //while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { 
+	    while (left > 1 && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
+                s++;                                           // skip the 0x1a
+                if        (*s == '1') {
+                    e = s + MODEAC_MSG_BYTES      + 8;         // point past remainder of message
+                } else if (*s == '2') {
+                    e = s + MODES_SHORT_MSG_BYTES + 8;
+                } else if (*s == '3') {
+                    e = s + MODES_LONG_MSG_BYTES  + 8;
+                } else {
+                    e = s;                                     // Not a valid beast message, skip
+                    left = &(c->buf[c->buflen]) - e;
+                    continue;
+                }
+                // we need to be careful of double escape characters in the message body
+                for (p = s; p < e; p++) {
+                    if (0x1A == *p) {
+                        p++; e++;
+                        if (e > &(c->buf[c->buflen])) {
+                            break;
+                        }
+                    }
+                }
+                left = &(c->buf[c->buflen]) - e;
+                if (left < 0) {                                // Incomplete message in buffer
+                    e = s - 1;                                 // point back at last found 0x1a.
+                    break;
+                }
+                // Have a 0x1a followed by 1, 2 or 3 - pass message less 0x1a to handler.
+                if (handler(c, s)) {
+                    modesCloseClient(c);
+                    return;
+                }
+                fullmsg = 1;
+            }
+            s = e;     // For the buffer remainder below
+
+        } else {
+            //
+            // This is the ASCII scanning case, AVR RAW or HTTP at present
+            // If there is a complete message still in the buffer, there must be the separator 'sep'
+            // in the buffer, note that we full-scan the buffer at every read for simplicity.
+            //
+            while ((e = strstr(s, sep)) != NULL) { // end of first message if found
+                *e = '\0';                         // The handler expects null terminated strings
+                if (handler(c, s)) {               // Pass message to handler.
+                    modesCloseClient(c);           // Handler returns 1 on error to signal we .
+                    return;                        // should close the client connection
+                }
+                s = e + strlen(sep);               // Move to start of next message
+                fullmsg = 1;
+            }
+        }
+
+        if (fullmsg) {                             // We processed something - so
+            c->buflen = &(c->buf[c->buflen]) - s;  //     Update the unprocessed buffer length
+            memmove(c->buf, s, c->buflen);         //     Move what's remaining to the start of the buffer
+        } else {                                   // If no message was decoded process the next client
+            break;
+        }
+    }
+}
+//
+//=========================================================================
+//
+// Read data from clients. This function actually delegates a lower-level
+// function that depends on the kind of service (raw, http, ...).
+//
+void modesReadFromClients(void) {
+
+    struct client *c = modesAcceptClients();
+
+    while (c) {
+            // Read next before servicing client incase the service routine deletes the client! 
+            struct client *next = c->next;
+
+        if (c->fd >= 0) {
+            if (c->service == Modes.ris) {
+                modesReadFromClient(c,"\n",decodeHexMessage);
+            } else if (c->service == Modes.bis) {
+                modesReadFromClient(c,"",decodeBinMessage);
+            } else if (c->service == Modes.https) {
+                modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
+            }
+        } else {
+            modesFreeClient(c);
+        }
+        c = next;
+    }
+}
+//
+// =============================== Network IO ===========================
+//
