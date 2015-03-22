@@ -660,14 +660,18 @@ char *aircraftsToJson(int *len) {
         if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) {
             track = 1;
         }
-        
+
+        unsigned char * pSig       = a->signalLevel;
+        unsigned int signalAverage = (pSig[0] + pSig[1] + pSig[2] + pSig[3] +
+                                      pSig[4] + pSig[5] + pSig[6] + pSig[7] + 3) >> 3;
+
         // No metric conversion
         l = snprintf(p,buflen,
             "{\"hex\":\"%06x\", \"squawk\":\"%04x\", \"flight\":\"%s\", \"lat\":%f, "
             "\"lon\":%f, \"validposition\":%d, \"altitude\":%d,  \"vert_rate\":%d,\"track\":%d, \"validtrack\":%d,"
-            "\"speed\":%d, \"messages\":%ld, \"seen\":%d},\n",
+            "\"speed\":%d, \"messages\":%ld, \"seen\":%d, \"signal\":%u, \"mtime\":%lu, \"postime\":%lu},\n",
             a->addr, a->modeA, a->flight, a->lat, a->lon, position, a->altitude, a->vert_rate, a->track, track,
-            a->speed, a->messages, (int)(now - a->seen));
+            a->speed, a->messages, (int)(now - a->seen), signalAverage, a->seen, a->seenLatLon);
         p += l; buflen -= l;
         
         //Resize if needed
@@ -796,8 +800,7 @@ int handleHTTPRequest(struct client *c, char *p) {
     snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_HTML); // Default content type
     ext = strrchr(getFile, '.');
 
-    //if (strlen(ext) > 0) {
-    if (ext) {
+    if (strlen(ext) > 0) {
         if (strstr(ext, ".json")) {
             snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
         } else if (strstr(ext, ".css")) {
@@ -913,8 +916,7 @@ void modesReadFromClient(struct client *c, char *sep,
             // in the buffer, note that we full-scan the buffer at every read for simplicity.
 
             left = c->buflen;                                  // Length of valid search for memchr()
-            //while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
-             while (left > 1 && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
+            while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
                 s++;                                           // skip the 0x1a
                 if        (*s == '1') {
                     e = s + MODEAC_MSG_BYTES      + 8;         // point past remainder of message
