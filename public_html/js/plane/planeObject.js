@@ -137,21 +137,35 @@ var planeObject = {
 			var oldlat 	= this.latitude;
 			var oldlon	= this.longitude;
 			var oldalt	= this.altitude;
-
+			if(getvalue('planedata')){
+			if(data.lat !== 0){
 			// Update all of our data
-			this.updated	= new Date().getTime();
-			this.altitude	= data.altitude;
-			this.speed	= data.speed;
-			this.track	= data.track;
-			this.latitude	= data.lat;
-			this.longitude	= data.lon;
-			this.flight	= data.flight;
-			this.squawk	= data.squawk;
-			this.icao	= data.hex;
-			this.messages	= data.messages;
-			this.signal	= data.signal;
-			this.seen	= data.seen;
-
+			  this.updated	= new Date().getTime();
+			  this.altitude	= data.altitude;
+			  this.speed	= data.speed;
+			  this.track	= data.track;
+			  this.latitude	= data.lat;
+			  this.longitude	= data.lon;
+			  this.flight	= data.flight;
+			  this.squawk	= data.squawk;
+			  this.icao	= data.hex;
+			  this.messages	= data.messages;
+			  this.signal	= data.signal;
+			  this.seen	= data.seen;
+			}}else{
+			  this.updated	= new Date().getTime();
+			  this.altitude	= data.altitude;
+			  this.speed	= data.speed;
+			  this.track	= data.track;
+			  this.latitude	= data.lat;
+			  this.longitude	= data.lon;
+			  this.flight	= data.flight;
+			  this.squawk	= data.squawk;
+			  this.icao	= data.hex;
+			  this.messages	= data.messages;
+			  this.signal	= data.signal;
+			  this.seen	= data.seen;
+			}
 			// If no packet in over 58 seconds, consider the plane reapable
 			// This way we can hold it, but not show it just in case the plane comes back
 			if (this.seen > 58) {
