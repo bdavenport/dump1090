@@ -78,9 +78,9 @@ function coolclock(){
 	html+='<td>';
 	html+='<canvas id="localclock" class="CoolClock:classic:40"></canvas>';
 	html+='</td>';
-	html+='<td style="margin-right:75px;">UTC Time</td>';
+	html+='<td">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;UTC Time</td>';
 	html+='<td>';
-	html+='<canvas style="margin-left:75px;" id="gmtclock" class="CoolClock:classic:40::0"></canvas>';
+	html+='<canvas style="margin-left:10px;" id="gmtclock" class="CoolClock:classic:40::0"></canvas>';
 	html+='</td>'; 
 	document.getElementById('timestamps').innerHTML = html;
 }
