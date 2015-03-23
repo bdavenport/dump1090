@@ -36,6 +36,7 @@ function set_reset(test) {
     storevalue('darkmode','true');//can change on settings pag
     storevalue('coolclock','true');//can change on settings page
     storevalue('normalclock','');//can change on settings pag//can change on settings page
+    storevalue('planedata','');
     return true;
     
 }
