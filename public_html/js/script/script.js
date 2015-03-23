@@ -48,8 +48,11 @@ function fetchData() {
 			// Copy the plane into Planes
 			Planes[plane.icao] = plane;
 		}
-
-		PlanesOnTable = data.length;
+		if(getvalue('planedata')){
+		PlanesOnTable = 0;
+		}else{
+		  PlanesOnTable = data.length;
+		}
 	});
 }
 
@@ -450,7 +453,11 @@ function normalizeTrack(track, valid){
 // Refeshes the larger table of all the planes
 function refreshTableInfo() {
         var html = '<hr width=80%>';
-        html +=  ' Planes on map: ' + PlanesOnMap + '/Planes in table: ' + (PlanesOnTable - PlanesToReap);
+	if(getvalue('planedata')){
+	  html +=  ' Planes on map: ' + PlanesOnMap + '/Planes in table: ' + PlanesOnMap;
+	}else{
+	 html +=  ' Planes on map: ' + PlanesOnMap + '/Planes in table: ' + (PlanesOnTable - PlanesToReap); 
+	}
         html += '<table id="tableinfo" width="100%">';
         var icount = 0;
         var theader = ["ICAO","Flight","Squawk","Altitude","Speed"];
@@ -464,7 +471,6 @@ function refreshTableInfo() {
                 icount++;
         }
         html += '</thead><tbody>';
-
 	for (var tablep in Planes) {
 		var tableplane = Planes[tablep]
 		if (!tableplane.reapable) {
@@ -491,15 +497,15 @@ function refreshTableInfo() {
 			} else {
 				html += '<tr class="plane_table_row ' + specialStyle + '">';
 		    }
-		    
+			if(tableplane.icao !==null){
 			html += '<td>' + tableplane.icao + '</td>';
 			html += '<td>' + tableplane.flight + '</td>';
+			
 			if (tableplane.squawk != '0000' ) {
     			html += '<td align="right">' + tableplane.squawk + '</td>';
     	    } else {
     	        html += '<td align="right">&nbsp;</td>';
     	    }
-    	    
     	    if (Metric) {
     			html += '<td align="right">' + Math.round(tableplane.altitude / 3.2828) + '</td>';
     			html += '<td align="right">' + Math.round(tableplane.speed * 1.852) + '</td>';
@@ -507,6 +513,7 @@ function refreshTableInfo() {
     	        html += '<td align="right">' + tableplane.altitude + '</td>';
     	        html += '<td align="right">' + tableplane.speed + '</td>';
     	    }
+	    
                         // Add distance column to table if site coordinates are provided
                         if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
                         html += '<td align="right">';
@@ -541,11 +548,16 @@ function refreshTableInfo() {
 			html += '</tr>';
 		}
 	}
+	}
 	html += '</tbody></table>';
-
+//==========================================================================================================================================================================================================
 	document.getElementById('planes_table').innerHTML = html;
-	top.document.title="on map:"+PlanesOnMap+" / "+"in table:"+(PlanesOnTable - PlanesToReap);
-
+	if(getvalue('planedata')){
+	  top.document.title="on map:"+PlanesOnMap+" / "+"in table:"+PlanesOnMap;
+	}else{
+	  top.document.title="on map:"+PlanesOnMap+" / "+"in table:"+(PlanesOnTable - PlanesToReap);
+	}
+	
 	if (SpecialSquawk) {
     	$('#SpecialSquawkWarning').css('display', 'inline');
     } else {
