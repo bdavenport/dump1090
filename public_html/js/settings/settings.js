@@ -57,6 +57,7 @@ function setup(){
   airplanemarkera();
   coolclock1();
   normalclock1();
+  planedata1();
 }
 color1 = rgbToHex( Number(getvalue('setr')), Number(getvalue('setg')), Number(getvalue('setb'))  );
 color2 = rgbToHex( Number(getvalue('set2r')), Number(getvalue('set2g')), Number(getvalue('set2b'))  );
@@ -67,6 +68,14 @@ color2 = rgbToHex( Number(getvalue('set2r')), Number(getvalue('set2g')), Number(
 		  }else{
 		    document.getElementById("flightaware").style.background=color2;//red//true
 		    document.getElementById("flightaware1").style.background=color1;//green//false
+}}
+function planedata1(){
+		  if(getvalue('planedata')){
+		    document.getElementById("planedata").style.background=color1;//green//true
+		    document.getElementById("planedata1").style.background=color2;//red//false
+		  }else{
+		    document.getElementById("planedata").style.background=color2;//red//true
+		    document.getElementById("planedata1").style.background=color1;//green//false
 }}
  function normalclock1(){
 		  if(getvalue('normalclock')){
