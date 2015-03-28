@@ -46,36 +46,61 @@
 //
 // Networking "stack" initialization
 //
+struct service {
+	char *descr;
+	int *socket;
+	int port;
+	int enabled;
+};
+
+struct service services[MODES_NET_SERVICES_NUM];
+
 void modesInitNet(void) {
-    struct {
-        char *descr;
-        int *socket;
-        int port;
-    } services[6] = {
-        {"Raw TCP output", &Modes.ros, Modes.net_output_raw_port},
-        {"Raw TCP input", &Modes.ris, Modes.net_input_raw_port},
-        {"Beast TCP output", &Modes.bos, Modes.net_output_beast_port},
-        {"Beast TCP input", &Modes.bis, Modes.net_input_beast_port},
-        {"HTTP server", &Modes.https, Modes.net_http_port},
-        {"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port}
-    };
     int j;
 
-    memset(Modes.clients,0,sizeof(Modes.clients));
-    Modes.maxfd = -1;
+	struct service svc[MODES_NET_SERVICES_NUM] = {
+		{"Raw TCP output", &Modes.ros, Modes.net_output_raw_port, 1},
+		{"Raw TCP input", &Modes.ris, Modes.net_input_raw_port, 1},
+		{"Beast TCP output", &Modes.bos, Modes.net_output_beast_port, 1},
+		{"Beast TCP input", &Modes.bis, Modes.net_input_beast_port, 1},
+		{"HTTP server", &Modes.https, Modes.net_http_port, 1},
+		{"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port, 1}
+	};
 
-    for (j = 0; j < 6; j++) {
-        int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
-        if (s == -1) {
-            fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
-                services[j].port, services[j].descr, strerror(errno));
-            exit(1);
+	memcpy(&services, &svc, sizeof(svc));//services = svc;
+
+    Modes.clients = NULL;
+
+#ifdef _WIN32
+    if ( (!Modes.wsaData.wVersion) 
+      && (!Modes.wsaData.wHighVersion) ) {
+      // Try to start the windows socket support
+      if (WSAStartup(MAKEWORD(2,1),&Modes.wsaData) != 0) 
+        {
+        fprintf(stderr, "WSAStartup returned Error\n");
         }
-        anetNonBlock(Modes.aneterr, s);
-        *services[j].socket = s;
+      }
+#endif
+
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		services[j].enabled = (services[j].port != 0);
+		if (services[j].enabled) {
+			int s = anetTcpServer(Modes.aneterr, services[j].port, Modes.net_bind_address);
+			if (s == -1) {
+				fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
+					services[j].port, services[j].descr, Modes.aneterr);
+				exit(1);
+			}
+			anetNonBlock(Modes.aneterr, s);
+			*services[j].socket = s;
+		} else {
+			if (Modes.debug & MODES_DEBUG_NET) printf("%s port is disabled\n", services[j].descr);
+		}
     }
 
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
 }
 //
 //=========================================================================
@@ -83,79 +108,80 @@ void modesInitNet(void) {
 // This function gets called from time to time when the decoding thread is
 // awakened by new data arriving. This usually happens a few times every second
 //
-void modesAcceptClients(void) {
+struct client * modesAcceptClients(void) {
     int fd, port;
     unsigned int j;
     struct client *c;
-    int services[6];
 
-    services[0] = Modes.ros;
-    services[1] = Modes.ris;
-    services[2] = Modes.bos;
-    services[3] = Modes.bis;
-    services[4] = Modes.https;
-    services[5] = Modes.sbsos;
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if (services[j].enabled) {
+			fd = anetTcpAccept(Modes.aneterr, *services[j].socket, NULL, &port);
+			if (fd == -1) continue;
 
-    for (j = 0; j < sizeof(services)/sizeof(int); j++) {
-        fd = anetTcpAccept(Modes.aneterr, services[j], NULL, &port);
-        if (fd == -1) continue;
+			anetNonBlock(Modes.aneterr, fd);
+			c = (struct client *) malloc(sizeof(*c));
+			c->service    = *services[j].socket;
+			c->next       = Modes.clients;
+			c->fd         = fd;
+			c->buflen     = 0;
+			Modes.clients = c;
+			anetSetSendBuffer(Modes.aneterr,fd, (MODES_NET_SNDBUF_SIZE << Modes.net_sndbuf_size));
 
-        if (fd >= MODES_NET_MAX_FD) {
-            close(fd);
-            return; // Max number of clients reached
-        }
+			if (*services[j].socket == Modes.sbsos) Modes.stat_sbs_connections++;
+			if (*services[j].socket == Modes.ros)   Modes.stat_raw_connections++;
+			if (*services[j].socket == Modes.bos)   Modes.stat_beast_connections++;
 
-        anetNonBlock(Modes.aneterr, fd);
-        c = (struct client *) malloc(sizeof(*c));
-        c->service = services[j];
-        c->fd = fd;
-        c->buflen = 0;
-        Modes.clients[fd] = c;
-        anetSetSendBuffer(Modes.aneterr,fd,MODES_NET_SNDBUF_SIZE);
+			j--; // Try again with the same listening port
 
-        if (Modes.maxfd < fd) Modes.maxfd = fd;
-        if (services[j] == Modes.sbsos) Modes.stat_sbs_connections++;
-        if (services[j] == Modes.ros)   Modes.stat_raw_connections++;
-        if (services[j] == Modes.bos)   Modes.stat_beast_connections++;
-
-        j--; // Try again with the same listening port
-
-        if (Modes.debug & MODES_DEBUG_NET)
-            printf("Created new client %d\n", fd);
+			if (Modes.debug & MODES_DEBUG_NET)
+				printf("Created new client %d\n", fd);
+		}
     }
+    return Modes.clients;
 }
 //
 //=========================================================================
 //
 // On error free the client, collect the structure, adjust maxfd if needed.
 //
-void modesFreeClient(int fd) {
-    close(fd);
-    if (Modes.clients[fd]->service == Modes.sbsos) {
-        if (Modes.stat_sbs_connections) Modes.stat_sbs_connections--;
-    }
-    else if (Modes.clients[fd]->service == Modes.ros) {
-        if (Modes.stat_raw_connections) Modes.stat_raw_connections--;
-    }
-    else if (Modes.clients[fd]->service == Modes.bos) {
-        if (Modes.stat_beast_connections) Modes.stat_beast_connections--;
-    }
-    free(Modes.clients[fd]);
-    Modes.clients[fd] = NULL;
+void modesFreeClient(struct client *c) {
 
-    if (Modes.debug & MODES_DEBUG_NET)
-        printf("Closing client %d\n", fd);
-
-    // If this was our maxfd, rescan the full clients array to check what's
-    // the new max.
-    if (Modes.maxfd == fd) {
-        int j;
-
-        Modes.maxfd = -1;
-        for (j = 0; j < MODES_NET_MAX_FD; j++) {
-            if (Modes.clients[j]) Modes.maxfd = j;
+    // Unhook this client from the linked list of clients
+    struct client *p = Modes.clients;
+    if (p) {
+        if (p == c) {
+            Modes.clients = c->next;
+        } else {
+            while ((p) && (p->next != c)) {
+                p = p->next;
+            }
+            if (p) {
+                p->next = c->next;
+            }
         }
     }
+
+    free(c);
+}
+//
+//=========================================================================
+//
+// Close the client connection and mark it as closed
+//
+void modesCloseClient(struct client *c) {
+	close(c->fd);
+    if (c->service == Modes.sbsos) {
+        if (Modes.stat_sbs_connections) Modes.stat_sbs_connections--;
+    } else if (c->service == Modes.ros) {
+        if (Modes.stat_raw_connections) Modes.stat_raw_connections--;
+    } else if (c->service == Modes.bos) {
+        if (Modes.stat_beast_connections) Modes.stat_beast_connections--;
+    }
+
+    if (Modes.debug & MODES_DEBUG_NET)
+        printf("Closing client %d\n", c->fd);
+
+    c->fd = -1;
 }
 //
 //=========================================================================
@@ -163,17 +189,27 @@ void modesFreeClient(int fd) {
 // Send the specified message to all clients listening for a given service
 //
 void modesSendAllClients(int service, void *msg, int len) {
-    int j;
-    struct client *c;
+    struct client *c = Modes.clients;
 
-    for (j = 0; j <= Modes.maxfd; j++) {
-        c = Modes.clients[j];
-        if (c && c->service == service) {
-            int nwritten = write(j, msg, len);
-            if (nwritten != len) {
-                modesFreeClient(j);
+    while (c) {
+        // Read next before servicing client incase the service routine deletes the client! 
+        struct client *next = c->next;
+
+        if (c->fd != -1) {
+            if (c->service == service) {
+#ifndef _WIN32
+                int nwritten = write(c->fd, msg, len);
+#else
+                int nwritten = send(c->fd, msg, len, 0 );
+#endif
+                if (nwritten != len) {
+                    modesCloseClient(c);
+                }
             }
+        } else {
+            modesFreeClient(c);
         }
+        c = next;
     }
 }
 //
@@ -185,7 +221,9 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     char *p = &Modes.beastOut[Modes.beastOutUsed];
     int  msgLen = mm->msgbits / 8;
     char * pTimeStamp;
+    char ch;
     int  j;
+    int  iOutLen = msgLen + 9; // Escape, msgtype, timestamp, sigLevel, msg
 
     *p++ = 0x1a;
     if      (msgLen == MODES_SHORT_MSG_BYTES)
@@ -199,14 +237,19 @@ void modesSendBeastOutput(struct modesMessage *mm) {
 
     pTimeStamp = (char *) &mm->timestampMsg;
     for (j = 5; j >= 0; j--) {
-        *p++ = pTimeStamp[j];
+        *p++ = (ch = pTimeStamp[j]);
+        if (0x1A == ch) {*p++ = ch; iOutLen++;}
     }
 
-    *p++ = mm->signalLevel;
+    *p++ = (ch = mm->signalLevel);
+    if (0x1A == ch) {*p++ = ch; iOutLen++;}
 
-    memcpy(p, mm->msg, msgLen);
+    for (j = 0; j < msgLen; j++) {
+        *p++ = (ch = mm->msg[j]);
+        if (0x1A == ch) {*p++ = ch; iOutLen++;} 
+    }
 
-    Modes.beastOutUsed += (msgLen + 9);
+    Modes.beastOutUsed +=  iOutLen;
     if (Modes.beastOutUsed >= Modes.net_output_raw_size)
       {
       modesSendAllClients(Modes.bos, Modes.beastOut, Modes.beastOutUsed);
@@ -261,8 +304,8 @@ void modesSendRawOutput(struct modesMessage *mm) {
 void modesSendSBSOutput(struct modesMessage *mm) {
     char msg[256], *p = msg;
     uint32_t     offset;
-    struct timeb epocTime;
-    struct tm    stTime;
+    struct timeb epocTime_receive, epocTime_now;
+    struct tm    stTime_receive, stTime_now;
     int          msgType;
 
     //
@@ -304,26 +347,33 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Fields 1 to 6 : SBS message type and ICAO address of the aircraft and some other stuff
     p += sprintf(p, "MSG,%d,111,11111,%06X,111111,", msgType, mm->addr); 
 
-    // Fields 7 & 8 are the current time and date
-    if (mm->timestampMsg) {                                       // Make sure the records' timestamp is valid before outputing it
-        epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
+    // Find current system time
+    ftime(&epocTime_now);                                         // get the current system time & date
+    stTime_now = *localtime(&epocTime_now.time);
+
+    // Find message reception time
+    if (mm->timestampMsg && !mm->remote) {                        // Make sure the records' timestamp is valid before using it
+        epocTime_receive = Modes.stSystemTimeBlk;                 // This is the time of the start of the Block we're processing
         offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
         offset   = offset / 12000;                                // convert to milliseconds
-        epocTime.millitm += offset;                               // add on the offset time to the Block start time
-        if (epocTime.millitm > 999)                               // if we've caused an overflow into the next second...
-            {epocTime.millitm -= 1000; epocTime.time ++;}         //    ..correct the overflow
-        stTime   = *localtime(&epocTime.time);                    // convert the time to year, month  day, hours, min, sec
-        p += sprintf(p, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
-        p += sprintf(p, "%02d:%02d:%02d.%03d,", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+        epocTime_receive.millitm += offset;                       // add on the offset time to the Block start time
+        if (epocTime_receive.millitm > 999) {                     // if we've caused an overflow into the next second...
+            epocTime_receive.millitm -= 1000;
+            epocTime_receive.time ++;                             //    ..correct the overflow
+        }
+        stTime_receive = *localtime(&epocTime_receive.time);
     } else {
-        p += sprintf(p, ",,");
-    }  
+        epocTime_receive = epocTime_now;                          // We don't have a usable reception time; use the current system time
+        stTime_receive = stTime_now;
+    }
+
+    // Fields 7 & 8 are the message reception time and date
+    p += sprintf(p, "%04d/%02d/%02d,", (stTime_receive.tm_year+1900),(stTime_receive.tm_mon+1), stTime_receive.tm_mday);
+    p += sprintf(p, "%02d:%02d:%02d.%03d,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, epocTime_receive.millitm);
 
     // Fields 9 & 10 are the current time and date
-    ftime(&epocTime);                                         // get the current system time & date
-    stTime = *localtime(&epocTime.time);                      // convert the time to year, month  day, hours, min, sec
-    p += sprintf(p, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
-    p += sprintf(p, "%02d:%02d:%02d.%03d", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+    p += sprintf(p, "%04d/%02d/%02d,", (stTime_now.tm_year+1900),(stTime_now.tm_mon+1), stTime_now.tm_mday);
+    p += sprintf(p, "%02d:%02d:%02d.%03d", stTime_now.tm_hour, stTime_now.tm_min, stTime_now.tm_sec, epocTime_now.millitm);
 
     // Field 11 is the callsign (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_CALLSIGN_VALID) {p += sprintf(p, ",%s", mm->flight);}
@@ -338,9 +388,19 @@ void modesSendSBSOutput(struct modesMessage *mm) {
         p += sprintf(p, ",");
     }
 
-    // Field 13 and 14 are the ground Speed and Heading (if we have them)
-    if (mm->bFlags & MODES_ACFLAGS_NSEWSPD_VALID) {p += sprintf(p, ",%d,%d", mm->velocity, mm->heading);}
-    else                                          {p += sprintf(p, ",,");}
+    // Field 13 is the ground Speed (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) {
+        p += sprintf(p, ",%d", mm->velocity);
+    } else {
+        p += sprintf(p, ","); 
+    }
+
+    // Field 14 is the ground Heading (if we have it)       
+    if (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) {
+        p += sprintf(p, ",%d", mm->heading);
+    } else {
+        p += sprintf(p, ",");
+    }
 
     // Fields 15 and 16 are the Lat/Lon (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {p += sprintf(p, ",%1.5f,%1.5f", mm->fLat, mm->fLon);}
@@ -357,10 +417,10 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Field 19 is the Squawk Changing Alert flag (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_FS_VALID) {
         if ((mm->fs >= 2) && (mm->fs <= 4)) {
-            p += sprintf(p, ",-1");  
-        } else {    
+            p += sprintf(p, ",-1");
+        } else {
             p += sprintf(p, ",0");
-        }  
+        }
     } else {
         p += sprintf(p, ",");
     }
@@ -369,7 +429,7 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     if (mm->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
         if ((mm->modeA == 0x7500) || (mm->modeA == 0x7600) || (mm->modeA == 0x7700)) {
             p += sprintf(p, ",-1");
-        } else {      
+        } else {
             p += sprintf(p, ",0");
         }
     } else {
@@ -379,10 +439,10 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Field 21 is the Squawk Ident flag (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_FS_VALID) {
         if ((mm->fs >= 4) && (mm->fs <= 5)) {
-            p += sprintf(p, ",-1");  
-        } else {    
+            p += sprintf(p, ",-1");
+        } else {
             p += sprintf(p, ",0");
-        }  
+        }
     } else {
         p += sprintf(p, ",");
     }
@@ -413,27 +473,33 @@ void modesQueueOutput(struct modesMessage *mm) {
 //=========================================================================
 //
 // This function decodes a Beast binary format message
-// 
+//
 // The message is passed to the higher level layers, so it feeds
 // the selected screen output, the network output and so forth.
-// 
+//
 // If the message looks invalid it is silently discarded.
 //
-// The function always returns 0 (success) to the caller as there is no 
+// The function always returns 0 (success) to the caller as there is no
 // case where we want broken messages here to close the client connection.
 //
 int decodeBinMessage(struct client *c, char *p) {
     int msgLen = 0;
+    int  j;
+    char ch;
+    char * ptr;
     unsigned char msg[MODES_LONG_MSG_BYTES];
     struct modesMessage mm;
     MODES_NOTUSED(c);
     memset(&mm, 0, sizeof(mm));
 
-    if ((*p == '1') && (Modes.mode_ac)) { // skip ModeA/C unless user enables --modes-ac
+    ch = *p++; /// Get the message type
+    if (0x1A == ch) {p++;} 
+
+    if       ((ch == '1') && (Modes.mode_ac)) { // skip ModeA/C unless user enables --modes-ac
         msgLen = MODEAC_MSG_BYTES;
-    } else if (*p == '2') {
+    } else if (ch == '2') {
         msgLen = MODES_SHORT_MSG_BYTES;
-    } else if (*p == '3') {
+    } else if (ch == '3') {
         msgLen = MODES_LONG_MSG_BYTES;
     }
 
@@ -441,16 +507,27 @@ int decodeBinMessage(struct client *c, char *p) {
         // Mark messages received over the internet as remote so that we don't try to
         // pass them off as being received by this instance when forwarding them
         mm.remote      =    1;
-        p += 7;                 // Skip the timestamp       
-        mm.signalLevel = *p++;  // Grab the signal level
-        memcpy(msg, p, msgLen); // and the data
+
+        ptr = (char*) &mm.timestampMsg;
+        for (j = 0; j < 6; j++) { // Grab the timestamp (big endian format)
+            ptr[5-j] = ch = *p++; 
+            if (0x1A == ch) {p++;}
+        }
+
+        mm.signalLevel = ch = *p++;  // Grab the signal level
+        if (0x1A == ch) {p++;}
+
+        for (j = 0; j < msgLen; j++) { // and the data
+            msg[j] = ch = *p++;
+            if (0x1A == ch) {p++;}
+        }
 
         if (msgLen == MODEAC_MSG_BYTES) { // ModeA or ModeC
-            decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1])); 
+            decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));
         } else {
             decodeModesMessage(&mm, msg);
         }
-    
+
         useModesMessage(&mm);
     }
     return (0);
@@ -583,14 +660,18 @@ char *aircraftsToJson(int *len) {
         if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) {
             track = 1;
         }
-        
+
+        unsigned char * pSig       = a->signalLevel;
+        unsigned int signalAverage = (pSig[0] + pSig[1] + pSig[2] + pSig[3] +
+                                      pSig[4] + pSig[5] + pSig[6] + pSig[7] + 3) >> 3;
+
         // No metric conversion
         l = snprintf(p,buflen,
             "{\"hex\":\"%06x\", \"squawk\":\"%04x\", \"flight\":\"%s\", \"lat\":%f, "
             "\"lon\":%f, \"validposition\":%d, \"altitude\":%d,  \"vert_rate\":%d,\"track\":%d, \"validtrack\":%d,"
-            "\"speed\":%d, \"messages\":%ld, \"seen\":%d},\n",
+            "\"speed\":%d, \"messages\":%ld, \"seen\":%d, \"signal\":%u, \"mtime\":%lu, \"postime\":%lu},\n",
             a->addr, a->modeA, a->flight, a->lat, a->lon, position, a->altitude, a->vert_rate, a->track, track,
-            a->speed, a->messages, (int)(now - a->seen));
+            a->speed, a->messages, (int)(now - a->seen), signalAverage, a->seen, a->seenLatLon);
         p += l; buflen -= l;
         
         //Resize if needed
@@ -636,6 +717,7 @@ int handleHTTPRequest(struct client *c, char *p) {
     char hdr[512];
     int clen, hdrlen;
     int httpver, keepalive;
+    int statuscode = 500;
     char *url, *content;
     char ctype[48];
     char getFile[1024];
@@ -648,11 +730,12 @@ int handleHTTPRequest(struct client *c, char *p) {
     httpver = (strstr(p, "HTTP/1.1") != NULL) ? 11 : 10;
     if (httpver == 10) {
         // HTTP 1.0 defaults to close, unless otherwise specified.
-        keepalive = strstr(p, "Connection: keep-alive") != NULL;
+        //keepalive = strstr(p, "Connection: keep-alive") != NULL;
     } else if (httpver == 11) {
         // HTTP 1.1 defaults to keep-alive, unless close is specified.
-        keepalive = strstr(p, "Connection: close") == NULL;
+        //keepalive = strstr(p, "Connection: close") == NULL;
     }
+    keepalive = 0;
 
     // Identify he URL.
     p = strchr(p,' ');
@@ -677,22 +760,42 @@ int handleHTTPRequest(struct client *c, char *p) {
     // "/" -> Our google map application.
     // "/data.json" -> Our ajax request to update planes.
     if (strstr(url, "/data.json")) {
+        statuscode = 200;
         content = aircraftsToJson(&clen);
         //snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
     } else {
         struct stat sbuf;
         int fd = -1;
+       // char *rp, *hrp;
+ 	char rp[PATH_MAX], hrp[PATH_MAX];
+ 
+         if (!realpath(getFile, rp))
+             rp[0] = 0;
+         if (!realpath(HTMLPATH, hrp))
+             strcpy(hrp, HTMLPATH);
 
-        if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
-            content = (char *) malloc(sbuf.st_size);
-            if (read(fd, content, sbuf.st_size) == -1) {
-                snprintf(content, sbuf.st_size, "Error reading from file: %s", strerror(errno));
+//        rp = realpath(getFile, NULL);
+//        hrp = realpath(HTMLPATH, NULL);
+//        hrp = (hrp ? hrp : HTMLPATH);
+        clen = -1;
+        content = strdup("Server error occured");
+//        if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
+ 	if (!strncmp(hrp, rp, strlen(hrp))) {
+            if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
+                content = (char *) realloc(content, sbuf.st_size);
+                if (read(fd, content, sbuf.st_size) != -1) {
+                    clen = sbuf.st_size;
+                    statuscode = 200;
+                }
             }
-            clen = sbuf.st_size;
         } else {
-            char buf[128];
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s", strerror(errno));
-            content = strdup(buf);
+            errno = ENOENT;
+        }
+
+        if (clen < 0) {
+            content = realloc(content, 128);
+            clen = snprintf(content, 128,"Error opening HTML file: %s", strerror(errno));
+            statuscode = 404;
         }
         
         if (fd != -1) {
@@ -704,7 +807,8 @@ int handleHTTPRequest(struct client *c, char *p) {
     snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_HTML); // Default content type
     ext = strrchr(getFile, '.');
 
-    if (strlen(ext) > 0) {
+    //if (strlen(ext) > 0) {
+      if (ext) {
         if (strstr(ext, ".json")) {
             snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
         } else if (strstr(ext, ".css")) {
@@ -716,7 +820,7 @@ int handleHTTPRequest(struct client *c, char *p) {
 
     // Create the header and send the reply
     hdrlen = snprintf(hdr, sizeof(hdr),
-        "HTTP/1.1 200 OK\r\n"
+        "HTTP/1.1 %d \r\n"
         "Server: Dump1090\r\n"
         "Content-Type: %s\r\n"
         "Connection: %s\r\n"
@@ -724,6 +828,7 @@ int handleHTTPRequest(struct client *c, char *p) {
         "Cache-Control: no-cache, must-revalidate\r\n"
         "Expires: Sat, 26 Jul 1997 05:00:00 GMT\r\n"
         "\r\n",
+        statuscode,
         ctype,
         keepalive ? "keep-alive" : "close",
         clen);
@@ -733,7 +838,13 @@ int handleHTTPRequest(struct client *c, char *p) {
     }
 
     // Send header and content.
-    if (write(c->fd, hdr, hdrlen) == -1 || write(c->fd, content, clen) == -1) {
+#ifndef _WIN32
+    if ( (write(c->fd, hdr, hdrlen) != hdrlen) 
+      || (write(c->fd, content, clen) != clen) ) {
+#else
+    if ( (send(c->fd, hdr, hdrlen, 0) != hdrlen) 
+      || (send(c->fd, content, clen, 0) != clen) ) {
+#endif
         free(content);
         return 1;
     }
@@ -762,7 +873,7 @@ void modesReadFromClient(struct client *c, char *sep,
     int nread;
     int fullmsg;
     int bContinue = 1;
-    char *s, *e;
+    char *s, *e, *p;
 
     while(bContinue) {
 
@@ -774,14 +885,28 @@ void modesReadFromClient(struct client *c, char *sep,
             left = MODES_CLIENT_BUF_SIZE;
             // If there is garbage, read more to discard it ASAP
         }
+#ifndef _WIN32
         nread = read(c->fd, c->buf+c->buflen, left);
+#else
+        nread = recv(c->fd, c->buf+c->buflen, left, 0);
+        if (nread < 0) {errno = WSAGetLastError();}
+#endif
+        if (nread == 0) {
+			modesCloseClient(c);
+			return;
+		}
 
         // If we didn't get all the data we asked for, then return once we've processed what we did get.
         if (nread != left) {
             bContinue = 0;
         }
-        if ( (nread < 0) && (errno != EAGAIN)) { // Error, or end of file
-            modesFreeClient(c->fd);
+#ifndef _WIN32
+        if ( (nread < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || nread == 0 ) { // Error, or end of file
+#else
+        if ( (nread < 0) && (errno != EWOULDBLOCK)) { // Error, or end of file
+#endif
+            modesCloseClient(c);
+            return;
         }
         if (nread <= 0) {
             break; // Serve next client
@@ -799,7 +924,8 @@ void modesReadFromClient(struct client *c, char *sep,
             // in the buffer, note that we full-scan the buffer at every read for simplicity.
 
             left = c->buflen;                                  // Length of valid search for memchr()
-            while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
+            //while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { 
+	    while (left > 1 && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
                 s++;                                           // skip the 0x1a
                 if        (*s == '1') {
                     e = s + MODEAC_MSG_BYTES      + 8;         // point past remainder of message
@@ -812,6 +938,15 @@ void modesReadFromClient(struct client *c, char *sep,
                     left = &(c->buf[c->buflen]) - e;
                     continue;
                 }
+                // we need to be careful of double escape characters in the message body
+                for (p = s; p < e; p++) {
+                    if (0x1A == *p) {
+                        p++; e++;
+                        if (e > &(c->buf[c->buflen])) {
+                            break;
+                        }
+                    }
+                }
                 left = &(c->buf[c->buflen]) - e;
                 if (left < 0) {                                // Incomplete message in buffer
                     e = s - 1;                                 // point back at last found 0x1a.
@@ -819,7 +954,7 @@ void modesReadFromClient(struct client *c, char *sep,
                 }
                 // Have a 0x1a followed by 1, 2 or 3 - pass message less 0x1a to handler.
                 if (handler(c, s)) {
-                    modesFreeClient(c->fd);          
+                    modesCloseClient(c);
                     return;
                 }
                 fullmsg = 1;
@@ -834,16 +969,16 @@ void modesReadFromClient(struct client *c, char *sep,
             //
             while ((e = strstr(s, sep)) != NULL) { // end of first message if found
                 *e = '\0';                         // The handler expects null terminated strings
-                if (handler(c, s)) {               // Pass message to handler. 
-                    modesFreeClient(c->fd);        // Handler returns 1 on error to signal we .
+                if (handler(c, s)) {               // Pass message to handler.
+                    modesCloseClient(c);           // Handler returns 1 on error to signal we .
                     return;                        // should close the client connection
                 }
                 s = e + strlen(sep);               // Move to start of next message
                 fullmsg = 1;
             }
         }
-        
-        if (fullmsg) {                             // We processed something - so 
+
+        if (fullmsg) {                             // We processed something - so
             c->buflen = &(c->buf[c->buflen]) - s;  //     Update the unprocessed buffer length
             memmove(c->buf, s, c->buflen);         //     Move what's remaining to the start of the buffer
         } else {                                   // If no message was decoded process the next client
@@ -858,19 +993,25 @@ void modesReadFromClient(struct client *c, char *sep,
 // function that depends on the kind of service (raw, http, ...).
 //
 void modesReadFromClients(void) {
-    int j;
-    struct client *c;
 
-    modesAcceptClients();
+    struct client *c = modesAcceptClients();
 
-    for (j = 0; j <= Modes.maxfd; j++) {
-        if ((c = Modes.clients[j]) == NULL) continue;
-        if (c->service == Modes.ris)
-            modesReadFromClient(c,"\n",decodeHexMessage);
-        else if (c->service == Modes.bis)
-            modesReadFromClient(c,"",decodeBinMessage);
-        else if (c->service == Modes.https)
-            modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
+    while (c) {
+            // Read next before servicing client incase the service routine deletes the client! 
+            struct client *next = c->next;
+
+        if (c->fd >= 0) {
+            if (c->service == Modes.ris) {
+                modesReadFromClient(c,"\n",decodeHexMessage);
+            } else if (c->service == Modes.bis) {
+                modesReadFromClient(c,"",decodeBinMessage);
+            } else if (c->service == Modes.https) {
+                modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
+            }
+        } else {
+            modesFreeClient(c);
+        }
+        c = next;
     }
 }
 //

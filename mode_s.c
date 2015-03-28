@@ -112,24 +112,19 @@ int modesMessageLenByType(int type) {
 int fixSingleBitErrors(unsigned char *msg, int bits) {
     int j;
     unsigned char aux[MODES_LONG_MSG_BYTES];
-
     memcpy(aux, msg, bits/8);
-
     // Do not attempt to error correct Bits 0-4. These contain the DF, and must
     // be correct because we can only error correct DF17
     for (j = 5; j < bits; j++) {
         int byte    = j/8;
         int bitmask = 1 << (7 - (j & 7));
-
         aux[byte] ^= bitmask; // Flip j-th bit
-
         if (0 == modesChecksum(aux, bits)) {
             // The error is fixed. Overwrite the original buffer with the 
             // corrected sequence, and returns the error bit position
             msg[byte] = aux[byte];
             return (j);
         }
-
         aux[byte] ^= bitmask; // Flip j-th bit back again
     }
     return (-1);
@@ -144,37 +139,29 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 int fixTwoBitsErrors(unsigned char *msg, int bits) {
     int j, i;
     unsigned char aux[MODES_LONG_MSG_BYTES];
-
     memcpy(aux, msg, bits/8);
-
     // Do not attempt to error correct Bits 0-4. These contain the DF, and must
     // be correct because we can only error correct DF17
     for (j = 5; j < bits; j++) {
         int byte1    = j/8;
         int bitmask1 = 1 << (7 - (j & 7));
         aux[byte1] ^= bitmask1; // Flip j-th bit
-
         // Don't check the same pairs multiple times, so i starts from j+1
         for (i = j+1; i < bits; i++) {
             int byte2    = i/8;
             int bitmask2 = 1 << (7 - (i & 7));
-
             aux[byte2] ^= bitmask2; // Flip i-th bit
-
             if (0 == modesChecksum(aux, bits)) {
                 // The error is fixed. Overwrite the original buffer with
                 // the corrected sequence, and returns the error bit position
                 msg[byte1] = aux[byte1];
                 msg[byte2] = aux[byte2];
-
                 // We return the two bits as a 16 bit integer by shifting
                 // 'i' on the left. This is possible since 'i' will always
                 // be non-zero because i starts from j+1
                 return (j | (i << 8));
-
             aux[byte2] ^= bitmask2; // Flip i-th bit back
             }
-
         aux[byte1] ^= bitmask1; // Flip j-th bit back
         }
     }
@@ -282,7 +269,6 @@ void modesInitErrorInfo() {
                             (int)bitErrorTable[i].syndrome);
         }
     }
-
     for (i = 0;  i < NERRORINFO;  i++) {
         printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
                bitErrorTable[i].syndrome,
@@ -499,7 +485,6 @@ void inittmsg1() {
                 tmsg1[i][bytepos] ^= mask;
         }
 }
-
 // Run sanity check on all but first 5 messages / bits, as those bits
 // are not corrected.
 //
@@ -519,7 +504,6 @@ void checktmsg1(FILE *out) {
                 }
         }
 }
-
 void inittmsg2() {
         int i, j, n, bytepos0, bytepos1, mask0, mask1;
         n = 0;
@@ -536,14 +520,12 @@ void inittmsg2() {
                 }
         }
 }
-
 long difftvusec(struct timeval *t0, struct timeval *t1) {
         long res = 0;
         res = t1->tv_usec-t0->tv_usec;
         res += (t1->tv_sec-t0->tv_sec)*1000000L;
         return res;
 }
-
 // the actual test code
 void testAndTimeBitCorrection() {
         struct timeval starttv, endtv;
@@ -746,7 +728,7 @@ int decodeMovementField(int movement) {
 //
 // Capability table
 char *ca_str[8] = {
-    /* 0 */ "Level 1 (Survillance Only)",
+    /* 0 */ "Level 1 (Surveillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
     /* 3 */ "Level 4 (DF0,4,5,11,20,21,24)",
@@ -762,7 +744,7 @@ char *cf_str[8] = {
     /* 1 */ "ADS-B ES/NT device with other address",
     /* 2 */ "Fine format TIS-B",
     /* 3 */ "Coarse format TIS-B",
-    /* 4 */ "TIS-B managment message",
+    /* 4 */ "TIS-B management message",
     /* 5 */ "TIS-B relay of ADS-B message with other address",
     /* 6 */ "ADS-B rebroadcast using DF-17 message format",
     /* 7 */ "Reserved"
@@ -778,6 +760,20 @@ char *fs_str[8] = {
     /* 5 */ "Special Position Identification. Airborne or Ground",
     /* 6 */ "Value 6 is not assigned",
     /* 7 */ "Value 7 is not assigned"
+};
+
+// Emergency state table
+// from https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
+// and 1090-DO-260B_FRAC
+char *es_str[8] = {
+    /* 0 */ "No emergency",
+    /* 1 */ "General emergency (squawk 7700)",
+    /* 2 */ "Lifeguard/Medical",
+    /* 3 */ "Minimum fuel",
+    /* 4 */ "No communications (squawk 7600)",
+    /* 5 */ "Unlawful interference (squawk 7500)",
+    /* 6 */ "Downed Aircraft",
+    /* 7 */ "Reserved"
 };
 //
 //=========================================================================
@@ -797,6 +793,8 @@ char *getMEDescription(int metype, int mesub) {
         mename = "Airborne Position (GNSS Height)";
     else if (metype == 23 && mesub == 0)
         mename = "Test Message";
+    else if (metype == 23 && mesub == 7)
+        mename = "Test Message -- Squawk";
     else if (metype == 24 && mesub == 1)
         mename = "Surface System Status";
     else if (metype == 28 && mesub == 1)
@@ -891,6 +889,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->crcok = ICAOAddressWasRecentlySeen(mm->addr = mm->crc);
     }
 
+    // If we're checking CRC and the CRC is invalid, then we can't trust any 
+    // of the data contents, so save time and give up now.
+    if ((Modes.check_crc) && (!mm->crcok) && (!mm->correctedbits)) { return;}
+
     // Fields for DF0, DF16
     if (mm->msgtype == 0  || mm->msgtype == 16) {
         if (msg[0] & 0x04) {                       // VS Bit
@@ -944,7 +946,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     if (  (mm->msgtype == 17) 
       || ((mm->msgtype == 18) && ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)) )) {
          int metype = mm->metype = msg[4] >> 3;   // Extended squitter message type
-         int mesub  = mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
+         int mesub  = mm->mesub  = (metype == 29 ? ((msg[4]&6)>>1) : (msg[4]  & 7));   // Extended squitter message subtype
 
         // Decode the extended squitter message
 
@@ -965,32 +967,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[4] = ais_charset[chars & 0x3F];
 
             mm->flight[8] = '\0';
-
-        } else if (metype >= 5 && metype <= 18) { // Position Message
-            mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
-            mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
-            mm->bFlags       |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID 
-                                                    : MODES_ACFLAGS_LLEVEN_VALID;
-            if (metype >= 9) {        // Airborne
-                int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
-                mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
-                if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
-                    mm->bFlags |= MODES_ACFLAGS_ALTITUDE_VALID;
-                    mm->altitude = decodeAC12Field(AC12Field, &mm->unit);
-                }
-            } else {                      // Ground
-                int movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
-                mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
-                if ((movement) && (movement < 125)) {
-                    mm->bFlags |= MODES_ACFLAGS_SPEED_VALID;
-                    mm->velocity = decodeMovementField(movement);
-                }
-
-                if (msg[5] & 0x08) {
-                    mm->bFlags |= MODES_ACFLAGS_HEADING_VALID;
-                    mm->heading = ((((msg[5] << 4) | (msg[6] >> 4)) & 0x007F) * 45) >> 4;
-                }
-            }
 
         } else if (metype == 19) { // Airborne Velocity Message
 
@@ -1060,6 +1036,61 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     mm->heading = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
                 }
             }
+
+        } else if (metype >= 5 && metype <= 22) { // Position Message
+            mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+            mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+            mm->bFlags       |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID 
+                                                    : MODES_ACFLAGS_LLEVEN_VALID;
+            if (metype >= 9) {        // Airborne
+                int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
+                mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
+                if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
+                    mm->bFlags |= MODES_ACFLAGS_ALTITUDE_VALID;
+                    mm->altitude = decodeAC12Field(AC12Field, &mm->unit);
+                }
+            } else {                      // Ground
+                int movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
+                mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+                if ((movement) && (movement < 125)) {
+                    mm->bFlags |= MODES_ACFLAGS_SPEED_VALID;
+                    mm->velocity = decodeMovementField(movement);
+                }
+
+                if (msg[5] & 0x08) {
+                    mm->bFlags |= MODES_ACFLAGS_HEADING_VALID;
+                    mm->heading = ((((msg[5] << 4) | (msg[6] >> 4)) & 0x007F) * 45) >> 4;
+                }
+            }
+
+        } else if (metype == 23) {	// Test metype squawk field
+			if (mesub == 7) {		// (see 1090-WP-15-20)
+				int ID13Field = (((msg[5] << 8) | msg[6]) & 0xFFF1)>>3;
+				if (ID13Field) {
+					mm->bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+					mm->modeA   = decodeID13Field(ID13Field);
+				}
+            }
+
+        } else if (metype == 24) { // Reserved for Surface System Status
+
+        } else if (metype == 28) { // Extended Squitter Aircraft Status
+			if (mesub == 1) {      // Emergency status squawk field
+				int ID13Field = (((msg[5] << 8) | msg[6]) & 0x1FFF);
+				if (ID13Field) {
+					mm->bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+					mm->modeA   = decodeID13Field(ID13Field);
+				}
+            }
+
+        } else if (metype == 29) { // Aircraft Trajectory Intent
+
+        } else if (metype == 30) { // Aircraft Operational Coordination
+
+        } else if (metype == 31) { // Aircraft Operational Status
+
+        } else { // Other metypes
+
         }
     }
 
@@ -1155,16 +1186,12 @@ void displayModesMessage(struct modesMessage *mm) {
 /*
             } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
                 printf("    BDS 1,0 Datalink Capability report\n");
-
             } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
                 printf("    BDS 3,0 ACAS Active Resolution Advisory\n");
-
-            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergecy/Priority Status
-                printf("    BDS 6,1 Emergecy/Priority Status\n");
-
+            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
+                printf("    BDS 6,1 Emergency/Priority Status\n");
             } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
                 printf("    BDS 6,2 Target State and Status\n");
-
             } else if ((mm->msg[4] >> 3) ==   31) { // BDS 6,5 Extended Squitter Aircraft Operational Status
                 printf("    BDS 6,5 Aircraft Operational Status\n");
 */
@@ -1177,7 +1204,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  Flight Status  : %s\n", fs_str[mm->fs]);
         printf("  DR             : %d\n", ((mm->msg[1] >> 3) & 0x1F));
         printf("  UM             : %d\n", (((mm->msg[1]  & 7) << 3) | (mm->msg[2] >> 5)));
-        printf("  Squawk         : %x\n", mm->modeA);
+        printf("  Squawk         : %04x\n", mm->modeA);
         printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 21) {
@@ -1189,16 +1216,12 @@ void displayModesMessage(struct modesMessage *mm) {
 /*
             } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
                 printf("    BDS 1,0 Datalink Capability report\n");
-
             } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
                 printf("    BDS 3,0 ACAS Active Resolution Advisory\n");
-
-            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergecy/Priority Status
-                printf("    BDS 6,1 Emergecy/Priority Status\n");
-
+            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
+                printf("    BDS 6,1 Emergency/Priority Status\n");
             } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
                 printf("    BDS 6,2 Target State and Status\n");
-
             } else if ((mm->msg[4] >> 3) ==   31) { // BDS 6,5 Extended Squitter Aircraft Operational Status
                 printf("    BDS 6,5 Aircraft Operational Status\n");
 */
@@ -1236,20 +1259,6 @@ void displayModesMessage(struct modesMessage *mm) {
             printf("    Aircraft Type  : %c%d\n", ('A' + 4 - mm->metype), mm->mesub);
             printf("    Identification : %s\n", mm->flight);
 
-      //} else if (mm->metype >= 5 && mm->metype <= 8) { // Surface position
-
-        } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Baro
-            printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
-            printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
-            printf("    Altitude : %d feet\n", mm->altitude);
-            if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
-                printf("    Latitude : %f\n", mm->fLat);
-                printf("    Longitude: %f\n", mm->fLon);
-            } else {
-                printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
-                printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
-            }
-
         } else if (mm->metype == 19) { // Airborne Velocity
             if (mm->mesub == 1 || mm->mesub == 2) {
                 printf("    EW status         : %s\n", (mm->bFlags & MODES_ACFLAGS_EWSPEED_VALID)  ? "Valid" : "Unavailable");
@@ -1273,8 +1282,32 @@ void displayModesMessage(struct modesMessage *mm) {
                 printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
             }
 
-      //} else if (mm->metype >= 20 && mm->metype <= 22) { // Airborne position GNSS
+        } else if (mm->metype >= 5 && mm->metype <= 22) { // Airborne position Baro
+            printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
+            printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
+            printf("    Altitude : %d feet\n", mm->altitude);
+            if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                printf("    Latitude : %f\n", mm->fLat);
+                printf("    Longitude: %f\n", mm->fLon);
+            } else {
+                printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+                printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+            }
 
+        } else if (mm->metype == 28) { // Extended Squitter Aircraft Status
+            if (mm->mesub == 1) {
+				printf("    Emergency State: %s\n", es_str[(mm->msg[5] & 0xE0) >> 5]);
+				printf("    Squawk: %04x\n", mm->modeA);
+            } else {
+                printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
+            }
+
+        } else if (mm->metype == 23) { // Test Message
+			if (mm->mesub == 7) {
+				printf("    Squawk: %04x\n", mm->modeA);
+            } else {
+                printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
+			}
         } else {
             printf("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
         }
@@ -1296,20 +1329,6 @@ void displayModesMessage(struct modesMessage *mm) {
             if (mm->metype >= 1 && mm->metype <= 4) { // Aircraft identification
                 printf("    Aircraft Type  : %c%d\n", ('A' + 4 - mm->metype), mm->mesub);
                 printf("    Identification : %s\n", mm->flight);
-
-          //} else if (mm->metype >= 5 && mm->metype <= 8) { // Surface position
-
-            } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Baro
-                printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
-                printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
-                printf("    Altitude : %d feet\n", mm->altitude);
-                if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
-                    printf("    Latitude : %f\n", mm->fLat);
-                    printf("    Longitude: %f\n", mm->fLon);
-                } else {
-                    printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
-                    printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
-                }
 
             } else if (mm->metype == 19) { // Airborne Velocity
                 if (mm->mesub == 1 || mm->mesub == 2) {
@@ -1334,7 +1353,17 @@ void displayModesMessage(struct modesMessage *mm) {
                     printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
                 }
 
-          //} else if (mm->metype >= 20 && mm->metype <= 22) { // Airborne position GNSS
+            } else if (mm->metype >= 5 && mm->metype <= 22) { // Ground or Airborne position, Baro or GNSS
+                printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
+                printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
+                printf("    Altitude : %d feet\n", mm->altitude);
+                if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                    printf("    Latitude : %f\n", mm->fLat);
+                    printf("    Longitude: %f\n", mm->fLon);
+                } else {
+                    printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+                    printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+                }
 
             } else {
                 printf("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
@@ -1372,9 +1401,8 @@ void displayModesMessage(struct modesMessage *mm) {
 // Turn I/Q samples pointed by Modes.data into the magnitude vector
 // pointed by Modes.magnitude.
 //
-void computeMagnitudeVector(void) {
+void computeMagnitudeVector(uint16_t *p) {
     uint16_t *m = &Modes.magnitude[MODES_PREAMBLE_SAMPLES+MODES_LONG_MSG_SAMPLES];
-    uint16_t *p = Modes.data;
     uint32_t j;
 
     memcpy(Modes.magnitude,&Modes.magnitude[MODES_ASYNC_BUF_SAMPLES], MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
@@ -1402,46 +1430,75 @@ int detectOutOfPhase(uint16_t *pPreamble) {
     if (pPreamble[-1] > pPreamble[1]/3) return -1;
     return 0;
 }
+
+
+uint16_t clamped_scale(uint16_t v, uint16_t scale) {
+    uint32_t scaled = (uint32_t)v * scale / 16384;
+    if (scaled > 65535) return 65535;
+    return (uint16_t) scaled;
+}
+// This function decides whether we are sampling early or late,
+// and by approximately how much, by looking at the energy in
+// preamble bits before and after the expected pulse locations.
 //
-//=========================================================================
+// It then deals with one sample pair at a time, comparing samples
+// to make a decision about the bit value. Based on this decision it
+// modifies the sample value of the *adjacent* sample which will
+// contain some of the energy from the bit we just inspected.
 //
-// This function does not really correct the phase of the message, it just
-// applies a transformation to the first sample representing a given bit:
-//
-// If the previous bit was one, we amplify it a bit.
-// If the previous bit was zero, we decrease it a bit.
-//
-// This simple transformation makes the message a bit more likely to be
-// correctly decoded for out of phase messages:
-//
-// When messages are out of phase there is more uncertainty in
-// sequences of the same bit multiple times, since 11111 will be
-// transmitted as continuously altering magnitude (high, low, high, low...)
-// 
-// However because the message is out of phase some part of the high
-// is mixed in the low part, so that it is hard to distinguish if it is
-// a zero or a one.
-//
-// However when the message is out of phase passing from 0 to 1 or from
-// 1 to 0 happens in a very recognizable way, for instance in the 0 -> 1
-// transition, magnitude goes low, high, high, low, and one of of the
-// two middle samples the high will be *very* high as part of the previous
-// or next high signal will be mixed there.
-//
-// Applying our simple transformation we make more likely if the current
-// bit is a zero, to detect another zero. Symmetrically if it is a one
-// it will be more likely to detect a one because of the transformation.
-// In this way similar levels will be interpreted more likely in the
-// correct way.
-//
+// pPayload[0] should be the start of the preamble,
+// pPayload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
+// pPayload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
 void applyPhaseCorrection(uint16_t *pPayload) {
     int j;
 
-    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2, pPayload += 2) {
-        if (pPayload[0] > pPayload[1]) { // One
-            pPayload[2] = (pPayload[2] * 5) / 4;
-        } else {                         // Zero
-            pPayload[2] = (pPayload[2] * 4) / 5;
+    // we expect 1 bits at 0, 2, 7, 9
+    // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
+    // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
+    // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
+
+    uint32_t onTime = (pPayload[0] + pPayload[2] + pPayload[7] + pPayload[9]);
+    uint32_t early = (pPayload[-1] + pPayload[6]) << 1;
+    uint32_t late = (pPayload[3] + pPayload[10]) << 1;
+
+    if (early > late) {
+        // Our sample period starts late and so includes some of the next bit.
+
+        uint16_t scaleUp = 16384 + 16384 * early / (early + onTime);   // 1 + early / (early+onTime)
+        uint16_t scaleDown = 16384 - 16384 * early / (early + onTime); // 1 - early / (early+onTime)
+
+        // trailing bits are 0; final data sample will be a bit low.
+        pPayload[MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] =
+            clamped_scale(pPayload[MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1],  scaleUp);
+        for (j = MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2; j > MODES_PREAMBLE_SAMPLES; j -= 2) {
+            if (pPayload[j] > pPayload[j+1]) {
+                // x [1 0] y
+                // x overlapped with the "1" bit and is slightly high
+                pPayload[j-1] = clamped_scale(pPayload[j-1], scaleDown);
+            } else {
+                // x [0 1] y
+                // x overlapped with the "0" bit and is slightly low
+                pPayload[j-1] = clamped_scale(pPayload[j-1], scaleUp);
+            }
+        }
+    } else {
+        // Our sample period starts early and so includes some of the previous bit.
+
+        uint16_t scaleUp = 16384 + 16384 * late / (late + onTime);   // 1 + late / (late+onTime)
+        uint16_t scaleDown = 16384 - 16384 * late / (late + onTime); // 1 - late / (late+onTime)
+
+        // leading bits are 0; first data sample will be a bit low.
+        pPayload[MODES_PREAMBLE_SAMPLES] = clamped_scale(pPayload[MODES_PREAMBLE_SAMPLES], scaleUp);
+        for (j = MODES_PREAMBLE_SAMPLES; j < MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2; j += 2) {
+            if (pPayload[j] > pPayload[j+1]) {
+                // x [1 0] y
+                // y overlapped with the "0" bit and is slightly low
+                pPayload[j+2] = clamped_scale(pPayload[j+2], scaleUp);
+            } else {
+                // x [0 1] y
+                // y overlapped with the "1" bit and is slightly high
+                pPayload[j+2] = clamped_scale(pPayload[j+2], scaleDown);
+            }
         }
     }
 }
@@ -1455,7 +1512,7 @@ void applyPhaseCorrection(uint16_t *pPayload) {
 void detectModeS(uint16_t *m, uint32_t mlen) {
     struct modesMessage mm;
     unsigned char msg[MODES_LONG_MSG_BYTES], *pMsg;
-    uint16_t aux[MODES_LONG_MSG_SAMPLES];
+    uint16_t aux[MODES_PREAMBLE_SAMPLES+MODES_LONG_MSG_SAMPLES+1];
     uint32_t j;
     int use_correction = 0;
 
@@ -1489,6 +1546,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         uint16_t *pPreamble, *pPayload, *pPtr;
         uint8_t  theByte, theErrs;
         int msglen, scanlen, sigStrength;
+        int valid_preamble;
 
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
@@ -1503,25 +1561,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         if (!use_correction)  // This is not a re-try with phase correction
             {                 // so try to find a new preamble
 
-            if (Modes.mode_ac) 
-                {
-                int ModeA = detectModeA(pPreamble, &mm);
-
-                if (ModeA) // We have found a valid ModeA/C in the data                    
-                    {
-                    mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
-
-                    // Decode the received message
-                    decodeModeAMessage(&mm, ModeA);
-
-                    // Pass data to the next layer
-                    useModesMessage(&mm);
-
-                    j += MODEAC_MSG_SAMPLES;
-                    Modes.stat_ModeAC++;
-                    continue;
-                    }
-                }
+            valid_preamble = 1;
 
             // First check of relations between the first 10 samples
             // representing a valid preamble. We don't even investigate further
@@ -1540,47 +1580,78 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                 if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
-                continue;
+                // continue;
+                valid_preamble = 0;
             }
 
-            // The samples between the two spikes must be < than the average
-            // of the high spikes level. We don't test bits too near to
-            // the high levels as signals can be out of phase so part of the
-            // energy can be in the near samples
-            high = (pPreamble[0] + pPreamble[2] + pPreamble[7] + pPreamble[9]) / 6;
-            if (pPreamble[4] >= high ||
-                pPreamble[5] >= high)
-            {
-                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                    dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
-                continue;
-            }
+           if (valid_preamble) {
+                // The samples between the two spikes must be < than the average
+                // of the high spikes level. We don't test bits too near to
+                // the high levels as signals can be out of phase so part of the
+                // energy can be in the near samples
+                high = (pPreamble[0] + pPreamble[2] + pPreamble[7] + pPreamble[9]) / 6;
+                if (pPreamble[4] >= high ||
+                    pPreamble[5] >= high)
+                {
+                    if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                        *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                        dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
+                    // continue;
+                    valid_preamble=0;
+                }
+           }
 
-            // Similarly samples in the range 11-14 must be low, as it is the
-            // space between the preamble and real data. Again we don't test
-            // bits too near to high levels, see above
-            if (pPreamble[11] >= high ||
-                pPreamble[12] >= high ||
-                pPreamble[13] >= high ||
-                pPreamble[14] >= high)
-            {
-                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                    dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
+           if (valid_preamble) {
+                // Similarly samples in the range 11-14 must be low, as it is the
+                // space between the preamble and real data. Again we don't test
+                // bits too near to high levels, see above
+                if (pPreamble[11] >= high ||
+                    pPreamble[12] >= high ||
+                    pPreamble[13] >= high ||
+                    pPreamble[14] >= high)
+                {
+                    if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                        *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                        dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
+                    // continue;
+                    valid_preamble = 0;
+                }
+           }
+
+           if (valid_preamble) {
+                Modes.stat_valid_preamble++;
+            } else {
+                if (Modes.mode_ac)
+                    {
+                    int ModeA = detectModeA(pPreamble, &mm);
+
+                    if (ModeA) // We have found a valid ModeA/C in the data
+                        {
+                        mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
+
+                        // Decode the received message
+                        decodeModeAMessage(&mm, ModeA);
+
+                        // Pass data to the next layer
+                        useModesMessage(&mm);
+
+                        j += MODEAC_MSG_SAMPLES;
+                        Modes.stat_ModeAC++;
+                        continue;
+                        }
+                    }
                 continue;
             }
-            Modes.stat_valid_preamble++;
         } 
 
         else {
             // If the previous attempt with this message failed, retry using
             // magnitude correction
             // Make a copy of the Payload, and phase correct the copy
-            memcpy(aux, pPayload, sizeof(aux));
-            applyPhaseCorrection(aux);
+            memcpy(aux, &pPreamble[-1], sizeof(aux));
+            applyPhaseCorrection(&aux[1]);
             Modes.stat_out_of_phase++;
-            pPayload = aux;
+            pPayload = &aux[1 + MODES_PREAMBLE_SAMPLES];
             // TODO ... apply other kind of corrections
             }
 
@@ -1775,7 +1846,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             // Skip this message if we are sure it's fine
             if (mm.crcok) {
-                j += (MODES_PREAMBLE_US+msglen)*2;
+                j += (MODES_PREAMBLE_US+msglen)*2 - 1;
             }
 
             // Pass data to the next layer
@@ -1813,6 +1884,25 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         Modes.net_output_raw_rate_count = 0;
         }
       }
+    else if ( (Modes.net) 
+           && (Modes.net_heartbeat_rate) 
+           && ((++Modes.net_heartbeat_count) > Modes.net_heartbeat_rate) ) {
+      //
+      // We haven't received any Mode A/C/S messages for some time. To try and keep any TCP
+      // links alive, send a null frame. This will help stop any routers discarding our TCP 
+      // link which will cause an un-recoverable link error if/when a real frame arrives.   
+      //
+      // Fudge up a null message
+      memset(&mm, 0, sizeof(mm));
+      mm.msgbits      = MODES_SHORT_MSG_BITS;
+      mm.timestampMsg = Modes.timestampBlk;
+
+      // Feed output clients
+      modesQueueOutput(&mm);
+
+      // Reset the heartbeat counter
+      Modes.net_heartbeat_count = 0;
+      }
 }
 //
 //=========================================================================
@@ -1837,6 +1927,9 @@ void useModesMessage(struct modesMessage *mm) {
 
         // Feed output clients
         if (Modes.net) {modesQueueOutput(mm);}
+
+        // Heartbeat not required whilst we're seeing real messages
+        Modes.net_heartbeat_count = 0;
     }
 }
 //
@@ -1844,8 +1937,14 @@ void useModesMessage(struct modesMessage *mm) {
 //
 // Always positive MOD operation, used for CPR decoding.
 //
-int cprModFunction(int a, int b) {
+//int cprModFunction(int a, int b) {
+int cprModInt(int a, int b) {
     int res = a % b;
+    if (res < 0) res += b;
+    return res;
+}
+double cprModDouble(double a, double b) {
+    double res = fmod(a,b);
     if (res < 0) res += b;
     return res;
 }
@@ -1938,11 +2037,8 @@ double cprDlonFunction(double lat, int fflag, int surface) {
 //
 // A few remarks:
 // 1) 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
-// 2) We assume that we always received the odd packet as last packet for
-//    simplicity. This may provide a position that is less fresh of a few
-//    seconds.
 //
-void decodeCPR(struct aircraft *a, int fflag, int surface) {
+int decodeCPR(struct aircraft *a, int fflag, int surface) {
     double AirDlat0 = (surface ? 90.0 : 360.0) / 60.0;
     double AirDlat1 = (surface ? 90.0 : 360.0) / 59.0;
     double lat0 = a->even_cprlat;
@@ -1952,40 +2048,72 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
 
     // Compute the Latitude Index "j"
     int    j     = (int) floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
-    double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
-    double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
+    //double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
+    //double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
+    double rlat0 = AirDlat0 * (cprModInt(j,60) + lat0 / 131072);
+    double rlat1 = AirDlat1 * (cprModInt(j,59) + lat1 / 131072);
+
+    time_t now = time(NULL);
+    double surface_rlat = MODES_USER_LATITUDE_DFLT;
+    double surface_rlon = MODES_USER_LONGITUDE_DFLT;
 
     if (surface) {
-        // If we're on the ground, make sure we have our receiver base station Lat/Lon
-        if (0 == (Modes.bUserFlags & MODES_USER_LATLON_VALID))
-            {return;}
-        rlat0 += floor(Modes.fUserLat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
-        rlat1 += floor(Modes.fUserLat / 90.0) * 90.0;
+        // If we're on the ground, make sure we have a (likely) valid Lat/Lon
+        if ((a->bFlags & MODES_ACFLAGS_LATLON_VALID) && (((int)(now - a->seenLatLon)) < Modes.interactive_display_ttl)) {
+            surface_rlat = a->lat;
+            surface_rlon = a->lon;
+        } else if (Modes.bUserFlags & MODES_USER_LATLON_VALID) {
+            surface_rlat = Modes.fUserLat;
+            surface_rlon = Modes.fUserLon;
+        } else {
+            // No local reference, give up
+            return (-1);
+        }
+        //rlat0 += floor(surface_rlat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+        //rlat1 += floor(surface_rlat / 90.0) * 90.0;
+        // Pick the quadrant that's closest to the reference location -
+        // this is not necessarily the same quadrant that contains the
+        // reference location. Note there are only two valid quadrants
+        // here (northern/southern hemisphere)
+        if ( (rlat0 - surface_rlat) > 45 ) rlat0 -= 90;
+        if ( (rlat1 - surface_rlat) > 45 ) rlat1 -= 90;
     } else {
         if (rlat0 >= 270) rlat0 -= 360;
         if (rlat1 >= 270) rlat1 -= 360;
     }
 
+    // Check to see that the latitude is in range: -90 .. +90
+    if (rlat0 < -90 || rlat0 > 90 || rlat1 < -90 || rlat1 > 90)
+        return (-1);
+
     // Check that both are in the same latitude zone, or abort.
-    if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
+    if (cprNLFunction(rlat0) != cprNLFunction(rlat1))
+        return (-1);
 
     // Compute ni and the Longitude Index "m"
     if (fflag) { // Use odd packet.
         int ni = cprNFunction(rlat1,1);
         int m = (int) floor((((lon0 * (cprNLFunction(rlat1)-1)) -
                               (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
-        a->lon = cprDlonFunction(rlat1, 1, surface) * (cprModFunction(m, ni)+lon1/131072);
+	a->lon = cprDlonFunction(rlat1, 1, surface) * (cprModInt(m, ni)+lon1/131072);
+        //a->lon = cprDlonFunction(rlat1, 1, surface) * (cprModFunction(m, ni)+lon1/131072);
         a->lat = rlat1;
     } else {     // Use even packet.
         int ni = cprNFunction(rlat0,0);
         int m = (int) floor((((lon0 * (cprNLFunction(rlat0)-1)) -
                               (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
-        a->lon = cprDlonFunction(rlat0, 0, surface) * (cprModFunction(m, ni)+lon0/131072);
+	a->lon = cprDlonFunction(rlat0, 0, surface) * (cprModInt(m, ni)+lon0/131072);
+        //a->lon = cprDlonFunction(rlat0, 0, surface) * (cprModFunction(m, ni)+lon0/131072);
         a->lat = rlat0;
     }
 
     if (surface) {
-        a->lon += floor(Modes.fUserLon / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+        //a->lon += floor(surface_rlon / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+        // Pick the quadrant that's closest to the reference location -
+        // this is not necessarily the same quadrant that contains the
+        // reference location.
+        a->lon += floor( (surface_rlon - a->lon + 45) / 90 ) * 90;  // if we are >45 degrees away, move towards the reference position
+        a->lon -= floor( (a->lon + 180) / 360 ) * 360;   
     } else if (a->lon > 180) {
         a->lon -= 360;
     }
@@ -1993,6 +2121,8 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     a->seenLatLon      = a->seen;
     a->timestampLatLon = a->timestamp;
     a->bFlags         |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
+
+    return 0;
 }
 //
 //=========================================================================
@@ -2000,12 +2130,9 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
 // This algorithm comes from:
 // 1090-WP29-07-Draft_CPR101 (which also defines decodeCPR() )
 //
-// There is an error in this document related to CPR relative decode.
-// Should use trunc() rather than the floor() function in Eq 38 and related for deltaZI.
-// floor() returns integer less than argument
-// trunc() returns integer closer to zero than argument.
-// Note:   text of document describes trunc() functionality for deltaZI calculation
-//         but the formulae use floor().
+// Despite what the earlier comment here said, we should *not* be using trunc().
+// See Figure 5-5 / 5-6 and note that floor() is applied to (0.5 + fRP - fEP), not
+// directly to (fRP - fEP). Eq 38 is correct. and we should use floor().
 //
 int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
     double AirDlat;
@@ -2019,7 +2146,8 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
     if (a->bFlags & MODES_ACFLAGS_LATLON_REL_OK) { // Ok to try aircraft relative first
         latr = a->lat;
         lonr = a->lon;
-    } else if (Modes.bUserFlags & MODES_USER_LATLON_VALID) { // Try ground station relative next
+    //} else if (Modes.bUserFlags & MODES_USER_LATLON_VALID) { // Try ground station relative next
+    } else if (!surface && (Modes.bUserFlags & MODES_USER_LATLON_VALID)) { // Try ground station relative next
         latr = Modes.fUserLat;
         lonr = Modes.fUserLon;
     } else {
@@ -2038,12 +2166,20 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
 
     // Compute the Latitude Index "j"
     j = (int) (floor(latr/AirDlat) +
-               trunc(0.5 + cprModFunction((int)latr, (int)AirDlat)/AirDlat - lat/131072));
+               //trunc(0.5 + cprModFunction((int)latr, (int)AirDlat)/AirDlat - lat/131072));
+	      floor(0.5 + cprModDouble(latr, AirDlat)/AirDlat - lat/131072));
     rlat = AirDlat * (j + lat/131072);
     if (rlat >= 270) rlat -= 360;
 
+    // Check to see that the latitude is in range: -90 .. +90
+    if (rlat < -90 || rlat > 90) {
+        a->bFlags &= ~MODES_ACFLAGS_LATLON_REL_OK; // This will cause a quick exit next time if no global has been done
+        return (-1);                               // Time to give up - Latitude error
+    }
+
     // Check to see that answer is reasonable - ie no more than 1/2 cell away 
-    if (fabs(rlat - a->lat) > (AirDlat/2)) {
+    //if (fabs(rlat - a->lat) > (AirDlat/2)) {
+    if (fabs(rlat - latr) > (AirDlat/2)) {
         a->bFlags &= ~MODES_ACFLAGS_LATLON_REL_OK; // This will cause a quick exit next time if no global has been done
         return (-1);                               // Time to give up - Latitude error 
     }
@@ -2051,12 +2187,14 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
     // Compute the Longitude Index "m"
     AirDlon = cprDlonFunction(rlat, fflag, surface);
     m = (int) (floor(lonr/AirDlon) +
-               trunc(0.5 + cprModFunction((int)lonr, (int)AirDlon)/AirDlon - lon/131072));
+               //trunc(0.5 + cprModFunction((int)lonr, (int)AirDlon)/AirDlon - lon/131072));
+	      floor(0.5 + cprModDouble(lonr, AirDlon)/AirDlon - lon/131072));
     rlon = AirDlon * (m + lon/131072);
     if (rlon > 180) rlon -= 360;
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away
-    if (fabs(rlon - a->lon) > (AirDlon/2)) {
+    //if (fabs(rlon - a->lon) > (AirDlon/2)) {
+    if (fabs(rlon - lonr) > (AirDlon/2)) {
         a->bFlags &= ~MODES_ACFLAGS_LATLON_REL_OK; // This will cause a quick exit next time if no global has been done
         return (-1);                               // Time to give up - Longitude error
     }
@@ -2071,4 +2209,3 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
 }
 //
 // ===================== Mode S detection and decoding  ===================
-//

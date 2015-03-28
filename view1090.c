@@ -1,6 +1,6 @@
 // view1090, a Mode S messages viewer for dump1090 devices.
 //
-// Copyright (C) 2013 by Malcolm Robb <Support@ATTAvionics.com>
+// Copyright (C) 2014 by Malcolm Robb <Support@ATTAvionics.com>
 //
 // All rights reserved.
 //
@@ -38,6 +38,27 @@ void sigintHandler(int dummy) {
     Modes.exit = 1;           // Signal to threads that we are done
 }
 //
+// =============================== Terminal handling ========================
+//
+#ifndef _WIN32
+// Get the number of rows after the terminal changes size.
+int getTermRows() { 
+    struct winsize w; 
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w); 
+    return (w.ws_row); 
+} 
+
+// Handle resizing terminal
+void sigWinchCallback() {
+    signal(SIGWINCH, SIG_IGN);
+    Modes.interactive_rows = getTermRows();
+    interactiveShowData();
+    signal(SIGWINCH, sigWinchCallback); 
+}
+#else 
+int getTermRows() { return MODES_INTERACTIVE_ROWS;}
+#endif
+//
 // =============================== Initialization ===========================
 //
 void view1090InitConfig(void) {
@@ -49,7 +70,7 @@ void view1090InitConfig(void) {
     Modes.check_crc               = 1;
     strcpy(View1090.net_input_beast_ipaddr,VIEW1090_NET_OUTPUT_IP_ADDRESS); 
     Modes.net_input_beast_port    = MODES_NET_OUTPUT_BEAST_PORT;
-    Modes.interactive_rows        = MODES_INTERACTIVE_ROWS;
+    Modes.interactive_rows        = getTermRows();
     Modes.interactive_delete_ttl  = MODES_INTERACTIVE_DELETE_TTL;
     Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
     Modes.fUserLat                = MODES_USER_LATITUDE_DFLT;
@@ -61,6 +82,21 @@ void view1090InitConfig(void) {
 //=========================================================================
 //
 void view1090Init(void) {
+
+    pthread_mutex_init(&Modes.pDF_mutex,NULL);
+    pthread_mutex_init(&Modes.data_mutex,NULL);
+    pthread_cond_init(&Modes.data_cond,NULL);
+
+#ifdef _WIN32
+    if ( (!Modes.wsaData.wVersion) 
+      && (!Modes.wsaData.wHighVersion) ) {
+      // Try to start the windows socket support
+      if (WSAStartup(MAKEWORD(2,1),&Modes.wsaData) != 0) 
+        {
+        fprintf(stderr, "WSAStartup returned Error\n");
+        }
+      }
+#endif
 
     // Allocate the various buffers used by Modes
     if ( NULL == (Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2)))
@@ -94,6 +130,34 @@ void view1090Init(void) {
     // Prepare error correction tables
     modesInitErrorInfo();
 }
+
+// Set up data connection
+int setupConnection(struct client *c) {
+    int fd;
+
+    // Try to connect to the selected ip address and port. We only support *ONE* input connection which we initiate.here.
+    if ((fd = anetTcpConnect(Modes.aneterr, View1090.net_input_beast_ipaddr, Modes.net_input_beast_port)) != ANET_ERR) {
+		anetNonBlock(Modes.aneterr, fd);
+		//
+		// Setup a service callback client structure for a beast binary input (from dump1090)
+		// This is a bit dodgy under Windows. The fd parameter is a handle to the internet
+		// socket on which we are receiving data. Under Linux, these seem to start at 0 and 
+		// count upwards. However, Windows uses "HANDLES" and these don't nececeriy start at 0.
+		// dump1090 limits fd to values less than 1024, and then uses the fd parameter to 
+		// index into an array of clients. This is ok-ish if handles are allocated up from 0.
+		// However, there is no gaurantee that Windows will behave like this, and if Windows 
+		// allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
+		// the first Windows handle is usually in the 0x54 (84 decimal) region.
+
+		c->next    = NULL;
+		c->buflen  = 0;
+		c->fd      = 
+		c->service =
+		Modes.bis  = fd;
+		Modes.clients = c;
+    }
+    return fd;
+}
 //
 // ================================ Main ====================================
 //
@@ -119,12 +183,48 @@ void showHelp(void) {
   "--help                   Show this help\n"
     );
 }
+
+#ifdef _WIN32
+void showCopyright(void) {
+    uint64_t llTime = time(NULL) + 1;
+
+    printf(
+"-----------------------------------------------------------------------------\n"
+"|                        view1090 ModeS Viewer           Ver : " MODES_DUMP1090_VERSION " |\n"
+"-----------------------------------------------------------------------------\n"
+"\n"
+" Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>\n"
+" Copyright (C) 2014 by Malcolm Robb <support@attavionics.com>\n"
+"\n"
+" All rights reserved.\n"
+"\n"
+" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n"
+" ""AS IS"" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\n"
+" LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\n"
+" A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\n"
+" HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n"
+" SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\n"
+" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
+" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
+" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
+" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
+" OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+"\n"
+" For further details refer to <https://github.com/MalcolmRobb/dump1090>\n" 
+"\n"
+    );
+
+  // delay for 1 second to give the user a chance to read the copyright
+  while (llTime >= time(NULL)) {}
+}
+#endif
 //
 //=========================================================================
 //
 int main(int argc, char **argv) {
     int j, fd;
     struct client *c;
+    char pk_buf[8];
 
     // Set sane defaults
 
@@ -174,53 +274,45 @@ int main(int argc, char **argv) {
         }
     }
 
+#ifdef _WIN32
+    // Try to comply with the Copyright license conditions for binary distribution
+    if (!Modes.quiet) {showCopyright();}
+#define MSG_DONTWAIT 0
+#endif
+
+#ifndef _WIN32
+    // Setup for SIGWINCH for handling lines
+    if (Modes.interactive) {signal(SIGWINCH, sigWinchCallback);}
+#endif
+
     // Initialization
     view1090Init();
 
     // Try to connect to the selected ip address and port. We only support *ONE* input connection which we initiate.here.
-    if ((fd = anetTcpConnect(Modes.aneterr, View1090.net_input_beast_ipaddr, Modes.net_input_beast_port)) == ANET_ERR) {
+    c = (struct client *) malloc(sizeof(*c));
+    if ((fd = setupConnection(c)) == ANET_ERR) {
         fprintf(stderr, "Failed to connect to %s:%d\n", View1090.net_input_beast_ipaddr, Modes.net_input_beast_port);
         exit(1);
-    }
-    //
-    // Setup a service callback client structure for a beast binary input (from dump1090)
-    // This is a bit dodgy under Windows. The fd parameter is a handle to the internet
-    // socket on which we are receiving data. Under Linux, these seem to start at 0 and 
-    // count upwards. However, Windows uses "HANDLES" and these don't nececeriy start at 0.
-    // dump1090 limits fd to values less than 1024, and then uses the fd parameter to 
-    // index into an array of clients. This is ok-ish if handles are allocated up from 0.
-    // However, there is no gaurantee that Windows will behave like this, and if Windows 
-    // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
-    // the first Windows handle is usually in the 0x54 (84 decimal) region.
-
-    if (fd >= MODES_NET_MAX_FD) { // Max number of clients reached
-        fprintf(stderr, "Max number of clients exceeded : fd = 0x%X\n", fd);
-        close(fd);
-        exit(1);
-    }
-
-    c = (struct client *) malloc(sizeof(*c));
-    c->buflen  = 0;
-    c->fd      = 
-    c->service =
-    Modes.bis  = fd;
-    Modes.clients[fd] = c;
-    if (Modes.maxfd < fd) {
-        Modes.maxfd = fd;
     }
 
     // Keep going till the user does something that stops us
     while (!Modes.exit) {
-        modesReadFromClient(c,"",decodeBinMessage);
         interactiveRemoveStaleAircrafts();
         interactiveShowData();
+        if ((fd == ANET_ERR) || (recv(c->fd, pk_buf, sizeof(pk_buf), MSG_PEEK | MSG_DONTWAIT) == 0)) {
+			free(c);
+			usleep(1000000);
+			c = (struct client *) malloc(sizeof(*c));
+			fd = setupConnection(c);
+			continue;
+        }
+        modesReadFromClient(c,"",decodeBinMessage);
+		usleep(100000);
     }
 
     // The user has stopped us, so close any socket we opened
     if (fd != ANET_ERR) 
       {close(fd);}
-
-    pthread_exit(0);
 
     return (0);
 }
